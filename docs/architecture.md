@@ -1,47 +1,34 @@
-# Architecture Context
+The "Why" Behind the Repo
+This repo is standalone by design. You don't need the rest of the SecureCart codebase to understand it, but it tackles the biggest headache we faced during our PCI scope-reduction design: How do you keep that security promise intact over time?
 
-This repo is deliberately scoped to be useful on its own — you don't need
-any other thing for it to make sense — but it exists to answer a
-specific question raised by SecureCart's PCI scope-reduction design
-(tokenize cardholder data at the browser, never let a PAN reach the
-backend): **how do you prove that design holds over time, across every
-future Terraform change, instead of just at the moment someone reviewed
-the architecture diagram?**
+It’s easy to prove a design is secure when you’re standing in front of an architecture diagram during a review. It’s significantly harder to prove that same design still holds six months later, after dozens of Terraform changes and team rotations.
 
-The answer this repo gives: encode the design constraints as policy, run
-them in CI on every pull request, and reject anything that quietly expands
-PCI scope back out — a payment service deployed without its `pci-scope`
-label, a database that loses its KMS key, an IAM binding that grants
-`roles/owner` to a contractor six months after the architecture review
-happened and everyone stopped paying attention.
+The Solution: We stopped relying on memory and documentation. Instead, we encoded our design constraints directly into policy. Now, every single pull request is automatically scanned. If someone tries to deploy a payment service without the required pci-scope label, misconfigures a database KMS key, or accidentally grants an IAM role that expands our PCI boundary, the CI pipeline fails loudly. We turned compliance into a "hard block" rather than a manual checklist.
 
-## The argument this makes to an interviewer
+Why this matters for an interview
+If you’re telling this story in an interview, don’t get hung up on the syntax of the Rego files. The interviewer isn't there to watch you debug code—they want to see how you think about scale and risk.
 
-"I designed a PCI-scope-reduced payment architecture" is a claim anyone can
-make from a diagram. "I encoded the scope-reduction constraints as
-automatically enforced policy, with unit tests proving the policy catches
-real violations" is a claim backed by something a reviewer can run
-themselves. That's the entire reason this exists as a separate repo instead
-of a paragraph in SecureCart's README.
+The Claim: Anyone can say, "I designed a secure architecture."
 
-## The argument this makes in a Security TPM loop specifically
+The Proof: You can say, "I translated our security constraints into automated policy, and here is how I wrote unit tests to prove those policies actually catch violations."
 
-The technical-retrospective round in a TPM interview isn't asking "did you
-write this code" — it's asking "walk me through the program." The story
-here is the program, not the Rego: a compliance requirement (PCI scope
-reduction) got identified, translated into something engineering had to
-satisfy automatically, and then audited a second time before being called
-done. That's a roadmap-kickoff-execution-verification arc with a stakeholder
-(the future engineer who'll touch this Terraform without re-reading the
-architecture doc) and a measurable outcome (a CI check that fails loudly
-instead of a scope violation that ships silently). That arc is the thing to
-narrate, not the syntax.
+That changes the conversation from theoretical security to operational security. It shows you understand that security is a living, breathing part of the development lifecycle, not just a document that lives in a Confluence page.
 
-## Known incompleteness
+The TPM Perspective: Mapping the Arc
+When you’re in a Security TPM interview, the "story" is the program, not the code. Focus on the project’s arc:
 
-See [`docs/audit-log.md`](audit-log.md) for the specific gaps. The honest
-summary: the controls-mapping structure and the compliant/noncompliant
-example pair are solid. Test coverage across all five policy files and live
+The Identification: Identifying the PCI-scope reduction requirement.
+
+The Translation: Translating those high-level compliance goals into engineering constraints.
+
+The Verification: Closing the loop with automated auditing.
+
+Frame it as a roadmap: you built a system that protects future engineers—even those who haven't read the original architecture docs—from accidentally shipping a compliance violation. That shift from "human-verified" to "system-enforced" is the real win.
+
+A Note on Where We Are
+I believe in being transparent about where this project stands. The structure—specifically the mapping of controls and the pairing of compliant/non-compliant examples—is solid. However, the test coverage across all five policy files is still a work in progress.
+
+The project exists to prevent "over-claiming" on security, so I’m holding myself to that same standard: see docs/audit-log.md for the gaps we’re still working to close.
 verification that the Rego actually executes are not yet done, and saying
 otherwise would be the kind of overclaim this whole project is supposed to
 prevent.
