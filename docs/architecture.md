@@ -1,7 +1,7 @@
 # Architecture Context
 
 This repo is deliberately scoped to be useful on its own — you don't need
-the rest of SecureCart for it to make sense — but it exists to answer a
+any other thing for it to make sense — but it exists to answer a
 specific question raised by SecureCart's PCI scope-reduction design
 (tokenize cardholder data at the browser, never let a PAN reach the
 backend): **how do you prove that design holds over time, across every
