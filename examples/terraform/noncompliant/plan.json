@@ -1,0 +1,112 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "google_compute_firewall.allow_ssh_everywhere",
+      "mode": "managed",
+      "type": "google_compute_firewall",
+      "name": "allow_ssh_everywhere",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "allow-ssh-everywhere",
+          "network": "default",
+          "allow": [
+            {
+              "protocol": "tcp",
+              "ports": ["22"]
+            }
+          ],
+          "source_ranges": ["0.0.0.0/0"],
+          "direction": "INGRESS",
+          "priority": 1000
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "google_cloud_run_v2_service.payment_service",
+      "mode": "managed",
+      "type": "google_cloud_run_v2_service",
+      "name": "payment_service",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "payment-service",
+          "location": "us-central1",
+          "labels": {},
+          "template": [
+            {
+              "containers": [
+                {
+                  "image": "gcr.io/securecart/payment-service:latest",
+                  "env": [
+                    {
+                      "name": "STRIPE_SECRET_KEY",
+                      "value": "sk_live_REDACTED_EXAMPLE"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "google_sql_database_instance.orders_db",
+      "mode": "managed",
+      "type": "google_sql_database_instance",
+      "name": "orders_db",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "name": "orders-db",
+          "database_version": "POSTGRES_15",
+          "region": "us-central1",
+          "encryption_key_name": null,
+          "settings": [
+            {
+              "tier": "db-custom-2-8192"
+            }
+          ]
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "google_project_iam_member.everyone_is_owner",
+      "mode": "managed",
+      "type": "google_project_iam_member",
+      "name": "everyone_is_owner",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "project": "securecart-prod",
+          "role": "roles/owner",
+          "member": "user:contractor@example.com"
+        },
+        "after_unknown": {},
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

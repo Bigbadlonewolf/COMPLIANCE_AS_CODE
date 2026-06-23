@@ -31,32 +31,12 @@ jobs:
     needs: opa-unit-tests
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-
-      #   - name: Authenticate to GCP
-      #   uses: google-github-actions/auth@v2
-      #   with:
-      #     credentials_json: ${{ secrets.GCP_SA_KEY }}
-        # Requires a GCP_SA_KEY repository secret (a service account JSON key
-        # scoped read-only against the target project) to be added before
-        # this workflow can run green. Documented here instead of left as a
-        # silent assumption — `terraform plan` against the google provider
-        # fails at provider-init time without this, even for resources that
-        # never call a live API, which is what blocked the pipeline before
-        # this fix.
 
       - name: Install conftest
         run: |
           curl -L -o conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
           tar -xzf conftest.tar.gz
           sudo mv conftest /usr/local/bin/
-
-      - name: Terraform plan (noncompliant example)
-        working-directory: examples/terraform/noncompliant
-        run: |
-          terraform init -backend=false
-          terraform plan -out=plan.tfplan
-          terraform show -json plan.tfplan > plan.json
 
       # This step is EXPECTED to fail. If it passes, the policies are broken.
       - name: Conftest should reject this plan
@@ -78,24 +58,12 @@ jobs:
     needs: opa-unit-tests
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
 
-        #   - name: Authenticate to GCP
-        #   uses: google-github-actions/auth@v2
-        #   with:
-        #   credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Install conftest
         run: |
           curl -L -o conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
           tar -xzf conftest.tar.gz
           sudo mv conftest /usr/local/bin/
-
-      - name: Terraform plan (compliant example)
-        working-directory: examples/terraform/compliant
-        run: |
-          terraform init -backend=false
-          terraform plan -out=plan.tfplan
-          terraform show -json plan.tfplan > plan.json
 
       - name: Conftest should accept this plan
         working-directory: examples/terraform/compliant
