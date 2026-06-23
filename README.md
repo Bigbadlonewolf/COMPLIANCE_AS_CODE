@@ -7,7 +7,7 @@ Instead of relying on plausible deniability and manual checklists, I’m using P
 
 
 ## Why this exists
-The Core Idea
+
 The real question is: Can we turn a regulatory requirement into an automated, repeatable, provable check that runs on every pull request?
 That’s what this project is built around.
 It’s a Program, Not Just Policies
@@ -22,30 +22,14 @@ This isn’t just a pile of Rego files. It’s meant to be a real engineering pr
 ## Repository layout
 
 ```
-cRepository Layout
+Repository Layout
 plaintextcompliance-as-code/
-├── policies/             # Rego policies for PCI, SOC 2, NIST, etc.
-├── tests/                # OPA unit tests
-├── examples/terraform/   # Compliant vs non-compliant examples (with plan.json fixtures)
-├── docs/                 # Control mappings, architecture decisions, and the audit log
-└── .github/workflows/    # CI that runs tests + Conftest enforcement
-Try It Yourself (No Cloud Credentials Needed)
-I’ve included pre-baked Terraform plan fixtures so you can kick the tires locally:
-
-## Running it locally
-
-```bash
-# Run the policy unit tests
-opa test policies/ tests/ -v
-
-# Check the deliberately broken example — should print violations
-conftest test examples/terraform/noncompliant/plan.json --policy policies --all-namespaces
-
-# Check the corrected example — should pass clean
-conftest test examples/terraform/compliant/plan.json --policy policies --all-namespaces
-```
-The `plan.json` files are pre-committed fixtures. No GCP credentials needed to run the checks.
-
+compliance-as-code/
+├── policies/             # Rego logic for PCI, SOC2, and NIST
+├── tests/                # OPA unit tests (opa test policies/ tests/ -v)
+├── examples/terraform/   # Proof: noncompliant (rejected) vs. compliant (passed)
+├── docs/                 # Mapping, architecture, and audit logs
+└── .github/workflows/    # CI pipeline: unit tests + conftest enforcement
 ## What this repo doesn't cover
 
 It checks infrastructure config at plan time. It doesn't scan runtime data, detect manual console changes, or replace a PCI QSA sign-off. [`docs/controls-mapping.md`](docs/controls-mapping.md) has the full list of gaps.
