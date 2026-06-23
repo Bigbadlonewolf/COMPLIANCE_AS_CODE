@@ -1,12 +1,19 @@
 # compliance-as-code
+Stop treating compliance like a document. Start treating it like production software.
+Most cloud architects are still stuck managing compliance with giant, outdated spreadsheets — mapping every Terraform resource to PCI DSS, SOC 2, and NIST 800-53 controls for yet another quarterly sign-off. 
+The dirty secret? That spreadsheet is just a statement of intent. It tells you nothing about what actually shipped to production last Tuesday.
+This repo is my attempt to fix that gap.
+Instead of relying on plausible deniability and manual checklists, I’m using Policy-as-Code with OPA (Open Policy Agent) and Conftest. Every Terraform change gets scanned before a single resource hits the cloud. If it violates our security or compliance rules, the PR is blocked. Simple as that.
 
-Policy-as-code enforcement of PCI DSS, SOC2, and NIST 800-53 controls against Terraform infrastructure, using OPA and Conftest.
-
-The question this repo answers: can a compliance requirement be turned into an automated check that runs on every pull request, rather than a document someone reads once and forgets?
 
 ## Why this exists
+The Core Idea
+The real question is: Can we turn a regulatory requirement into an automated, repeatable, provable check that runs on every pull request?
+That’s what this project is built around.
+It’s a Program, Not Just Policies
+This isn’t just a pile of Rego files. It’s meant to be a real engineering program with the same standards we apply to infrastructure:
 
-A Security TPM's job is to translate compliance requirements into engineering work, define what "done" actually means for that work, and catch drift before an auditor does. That's what this repo shows, not just that I can write policy logic, but that I can run the full program around it: map the requirements, enforce them, verify the enforcement works, and keep an honest record of what's still open.
+
 
 [`docs/controls-mapping.md`](docs/controls-mapping.md) is the requirements traceability document: which policy rule satisfies which regulatory citation, with no duplication between frameworks when the underlying control is the same.
 
@@ -15,22 +22,15 @@ A Security TPM's job is to translate compliance requirements into engineering wo
 ## Repository layout
 
 ```
-compliance-as-code/
-├── policies/
-│   ├── pci_dss/              # network segmentation, encryption, access control
-│   ├── soc2/                 # logging and monitoring (CC7.2)
-│   └── nist_800_53/          # least privilege (AC-6 family)
-├── tests/                    # OPA unit tests — run with: opa test policies/ tests/ -v
-├── examples/terraform/
-│   ├── noncompliant/         # deliberately violates every policy — CI confirms it gets rejected
-│   └── compliant/            # the corrected version — CI confirms it passes clean
-├── docs/
-│   ├── controls-mapping.md   # which policy satisfies which regulatory citation
-│   ├── architecture.md       # how this fits the SecureCart PCI scope story
-│   └── audit-log.md          # what was found in review, what was fixed, what is still open
-└── .github/workflows/
-    └── policy-check.yml      # CI: unit tests + conftest against both examples
-```
+cRepository Layout
+plaintextcompliance-as-code/
+├── policies/             # Rego policies for PCI, SOC 2, NIST, etc.
+├── tests/                # OPA unit tests
+├── examples/terraform/   # Compliant vs non-compliant examples (with plan.json fixtures)
+├── docs/                 # Control mappings, architecture decisions, and the audit log
+└── .github/workflows/    # CI that runs tests + Conftest enforcement
+Try It Yourself (No Cloud Credentials Needed)
+I’ve included pre-baked Terraform plan fixtures so you can kick the tires locally:
 
 ## Running it locally
 
@@ -44,7 +44,6 @@ conftest test examples/terraform/noncompliant/plan.json --policy policies --all-
 # Check the corrected example — should pass clean
 conftest test examples/terraform/compliant/plan.json --policy policies --all-namespaces
 ```
-
 The `plan.json` files are pre-committed fixtures. No GCP credentials needed to run the checks.
 
 ## What this repo doesn't cover
