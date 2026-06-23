@@ -20,7 +20,6 @@ This isn’t just a pile of Rego files. It’s meant to be a real engineering pr
 [`docs/audit-log.md`](docs/audit-log.md) is the honest program status: what was reviewed, what got fixed, what's still open, and why. Not a "everything is green" summary.
 
 ## Repository layout
-
 ```
 Repository Layout
 plaintextcompliance-as-code/
@@ -34,9 +33,5 @@ compliance-as-code/
 
 It checks infrastructure config at plan time. It doesn't scan runtime data, detect manual console changes, or replace a PCI QSA sign-off. [`docs/controls-mapping.md`](docs/controls-mapping.md)  
 has the full list of gaps.
-
 ## Status
 
-Built as a portfolio artifact. CI is green. OPA unit tests are written but haven't been verified in a live OPA runtime yet — that's the most important remaining step. See [`docs/audit-log.md`](docs/audit-log.md) for everything that was reviewed, fixed, and what's still genuinely unresolved.
-
-Run the policy tests: opa test policies/ tests/ -v Test the bad example (should fail): conftest test examples/terraform/noncompliant/plan.json --policy policies --all-namespaces Test the good example (should pass): conftest test examples/terraform/compliant/plan.json --policy policies --all-namespaces What This Isn’t This gives you strong preventive compliance at deploy time, but it’s not magic. It doesn’t solve runtime drift, configuration changes made in the console, or replace a proper QSA/auditor sign-off. See docs/controls-mapping.md for a clear view of what’s covered and what still needs human eyes. Current Status The CI is green, tests are passing, and we’re steadily expanding coverage. Check docs/audit-log.md for the latest on open items and recent improvements.
