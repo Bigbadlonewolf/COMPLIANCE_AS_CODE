@@ -65,10 +65,6 @@ resource "google_vpc_access_connector" "payment_connector" {
   }
 }
 
-data "google_compute_network" "default" {
-  name = "default"
-}
-
 resource "google_sql_database_instance" "orders_db" {
   name             = "orders-db"
   database_version = "POSTGRES_15"
@@ -82,12 +78,14 @@ resource "google_sql_database_instance" "orders_db" {
 
     ip_configuration {
       ipv4_enabled    = false
-      private_network = data.google_compute_network.default.id
+      private_network = "projects/securecart-prod/global/networks/default"
     }
 
     backup_configuration {
       enabled = true
     }
+  }
+}    }
   }
 }
 
