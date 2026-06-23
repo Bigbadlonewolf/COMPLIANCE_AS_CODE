@@ -1,4 +1,4 @@
-# The corrected version of ../noncompliant/main.tf — every violation fixed,
+﻿# The corrected version of ../noncompliant/main.tf — every violation fixed,
 # one-for-one, so the diff itself is documentation.
 
 resource "google_compute_firewall" "allow_ssh_internal_only" {
@@ -84,8 +84,6 @@ resource "google_sql_database_instance" "orders_db" {
     backup_configuration {
       enabled = true
     }
-  }
-}    }
   }
 }
 
