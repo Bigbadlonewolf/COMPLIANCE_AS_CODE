@@ -37,6 +37,13 @@ resource "google_sql_database_instance" "orders_db" {
   # no encryption_key_name set -> uses Google-default encryption only,
   # which is fine for many workloads but insufficient evidence for PCI 3.6
   # key-management documentation requirements.
+
+  settings {
+    tier = "db-custom-2-8192"
+    # no ip_configuration block -> defaults to a public IP, which is
+    # itself a second deliberate violation this example should be
+    # catching alongside the missing encryption_key_name.
+  }
 }
 
 resource "google_project_iam_member" "everyone_is_owner" {
