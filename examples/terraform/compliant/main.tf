@@ -84,6 +84,16 @@ resource "google_sql_database_instance" "orders_db" {
     backup_configuration {
       enabled = true
     }
+
+    database_flags {
+      name  = "cloudsql.enable_pgaudit"
+      value = "on"
+    }
+
+    database_flags {
+      name  = "log_connections"
+      value = "on"
+    }
   }
 }
 

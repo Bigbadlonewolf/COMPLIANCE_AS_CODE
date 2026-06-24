@@ -159,6 +159,16 @@
                 {
                   "enabled": true
                 }
+              ],
+              "database_flags": [
+                {
+                  "name": "cloudsql.enable_pgaudit",
+                  "value": "on"
+                },
+                {
+                  "name": "log_connections",
+                  "value": "on"
+                }
               ]
             }
           ]
