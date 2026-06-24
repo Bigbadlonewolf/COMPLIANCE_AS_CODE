@@ -93,7 +93,7 @@ Full citation table with per-rule breakdown: [`docs/controls-mapping.md`](docs/c
 
 Two GitHub Actions workflows trigger on every push or PR touching policies or Terraform:
 
-![CI Workflow](docs/ci-workflow.png)
+![CI Workflow](docs/compliance_as_code_actual_ci_pipeline.png)
 
 
 | Workflow | What it checks | Credentials needed |
