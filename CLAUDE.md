@@ -49,8 +49,8 @@ terraform/
   compliant/main.tf       — Reference compliant GCP config (showcase)
   noncompliant/main.tf    — Deliberately violating config (CI validation only)
 .github/workflows/
-  opa-tests.yml           — OPA unit tests; no GCP credentials needed
-  terraform-policy-check.yml — Fixture-based policy eval; no GCP credentials needed
+  opa-tests.yml           — OPA unit tests on policy/test file changes
+  policy-check.yml        — Gate (OPA unit tests) + conftest + opa-eval on fixtures; triggers on PR and main
 docs/controls-mapping.md  — Exact citation of each framework requirement to each policy rule
 ```
 

@@ -8,7 +8,7 @@ This is the most important document in the repo. The policies are the enforcemen
 |---|---|---|
 | `pci_dss/req_1_network_controls.rego` | Deny INGRESS firewall rules with sensitive ports (SSH, RDP, DB) open to `0.0.0.0/0`; deny `protocol = all` from internet | **Req 1.3.2** |
 | `pci_dss/req_2_system_defaults.rego` | Deny Cloud SQL with public IP; deny storage buckets without uniform access or public access prevention | **Req 2.2.1** |
-| `pci_dss/req_6_secure_systems.rego` | Deny Cloud SQL without CMEK or `ssl_mode = ENCRYPTED_ONLY`; deny storage without CMEK; deny KMS keys with no rotation | **Req 6.3.5, 6.5.3** |
+| `pci_dss/req_6_secure_systems.rego` | Deny Cloud SQL without CMEK or `ssl_mode = ENCRYPTED_ONLY`; deny storage without CMEK; deny KMS keys with no rotation or rotation period exceeding 1 year | **Req 6.3.5, 6.5.3** |
 | `pci_dss/req_7_access_control.rego` | Deny primitive IAM roles (`owner`, `editor`, `viewer`) at project level; deny `allUsers`/`allAuthenticatedUsers` | **Req 7.2.5, 7.2.6** |
 | `pci_dss/req_10_logging.rego` | Deny Cloud SQL without automated backups or `cloudsql.enable_pgaudit`; deny storage without versioning | **Req 10.2.1, 10.3.2** |
 
@@ -48,9 +48,12 @@ One underlying check. Three framework citations. Single place to update when GCP
 
 ---
 
-## What This Repo Doesn't Prove
+## What this repo doesn't prove
 
-- **No runtime data scanning.** These policies check Terraform plan output, not live data. They cannot detect a PAN that ends up in a database despite the tokenisation design. That requires Cloud DLP, which is noted here but not built.
-- **No protection against manual console changes.** A passing CI check proves the infrastructure config is compliant at plan time. It does not prevent someone from making a change directly in the GCP console afterward. Catching that requires scheduled drift detection against live state.
-- **No QSA sign-off.** Passing these policies is necessary but not sufficient for an actual PCI assessment. A Qualified Security Assessor still has to review. This repo is evidence you hand a QSA, not a replacement for one.
-- **GCP-specific.** Policies target `hashicorp/google` provider v5.x field names. AWS or Azure resources would need separate policy files; the OPA test infrastructure and CI patterns are reusable.
+These policies check Terraform plan output, not live data. They cannot detect a PAN that ends up in a database despite the tokenisation design. That requires Cloud DLP, which is noted here but not built.
+
+A passing CI check proves the infrastructure config is compliant at plan time. It does not prevent someone from making a change directly in the GCP console afterward. Catching that requires scheduled drift detection against live state.
+
+Passing these policies is necessary but not sufficient for an actual PCI assessment. A Qualified Security Assessor still has to review. This repo is evidence you hand a QSA, not a replacement for one.
+
+Policies target `hashicorp/google` provider v5.x field names. AWS or Azure resources would need separate policy files; the OPA test infrastructure and CI patterns are reusable.

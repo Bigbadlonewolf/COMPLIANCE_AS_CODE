@@ -14,7 +14,7 @@ The program was: define the specific controls that have to hold, encode them as 
 
 Point at [`docs/audit-log.md`](audit-log.md).
 
-It has open findings ranked by severity, with explicit reasoning for why each one wasn't fixed before shipping the draft. Not "I ran out of time" — specific tradeoffs: this finding needs its own test file, that one needs a credentials decision someone else has to make. That table is the artifact. Most candidates show you a finished demo and hope you don't ask what's missing. This shows the missing pieces on purpose, which is what the job actually requires day to day.
+It has open findings ranked by severity, with explicit reasoning for why each one wasn't fixed before shipping the draft. Not "I ran out of time." Specific tradeoffs: this finding needs its own test file, that one needs a credentials decision someone else has to make. That table is the artifact. Most candidates show you a finished demo and hope you don't ask what's missing. This shows the missing pieces on purpose, which is what the job actually requires day to day.
 
 ## "How do you work with engineering teams when you're not writing the code?"
 

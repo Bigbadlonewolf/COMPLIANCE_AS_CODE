@@ -1,6 +1,6 @@
 # Audit log
 
-This is the review record for the policies and CI pipeline. I went through three external review passes after the initial self-audit, and each one found real bugs the previous pass missed. That's not embarrassing — it's what real review looks like. The point of keeping this log is to show that process honestly, not to claim the first draft was clean.
+This is the review record for the policies and CI pipeline. I went through three external review passes after the initial self-audit, and each one found real bugs the previous pass missed. That's not embarrassing. It's what real review looks like. The point of keeping this log is to show that process honestly, not to claim the first draft was clean.
 
 One thing to flag before anything else: `opa test` has never been run against this code in a real OPA environment. Everything below was fixed by re-reading code against provider schemas. Re-reading and running are different things. **Run `opa test policies/ tests/ -v` yourself before treating any of this as proven.**
 
