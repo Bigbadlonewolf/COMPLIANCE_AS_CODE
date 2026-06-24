@@ -93,6 +93,9 @@ Full citation table with per-rule breakdown: [`docs/controls-mapping.md`](docs/c
 
 Two GitHub Actions workflows trigger on every push or PR touching policies or Terraform:
 
+![CI Workflow](docs/ci-workflow.png)
+
+
 | Workflow | What it checks | Credentials needed |
 |---|---|---|
 | `opa-tests.yml` | All OPA unit tests pass; `opa check --strict` syntax validation | None |
