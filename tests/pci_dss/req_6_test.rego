@@ -85,3 +85,31 @@ test_allow_asymmetric_key_no_rotation if {
 		}},
 	}]}
 }
+
+# ── DENY: KMS rotation period exceeds 1 year ─────────────────────────────────
+
+test_deny_kms_rotation_period_exceeds_one_year if {
+	count([v | v := req_6.deny[_]; contains(v, "exceeds 1 year")]) == 1 with input as {"resource_changes": [{
+		"address": "google_kms_crypto_key.slow_rotation",
+		"type": "google_kms_crypto_key",
+		"change": {"actions": ["create"], "after": {
+			"name": "slow-key",
+			"purpose": "ENCRYPT_DECRYPT",
+			"rotation_period": "63072001s",
+		}},
+	}]}
+}
+
+# ── ALLOW: KMS rotation period within 1 year ─────────────────────────────────
+
+test_allow_kms_rotation_period_within_one_year if {
+	count(req_6.deny) == 0 with input as {"resource_changes": [{
+		"address": "google_kms_crypto_key.good_rotation",
+		"type": "google_kms_crypto_key",
+		"change": {"actions": ["create"], "after": {
+			"name": "good-key",
+			"purpose": "ENCRYPT_DECRYPT",
+			"rotation_period": "7776000s",
+		}},
+	}]}
+}

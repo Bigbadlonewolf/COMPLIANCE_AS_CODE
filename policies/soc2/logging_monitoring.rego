@@ -1,8 +1,6 @@
 package soc2.logging_monitoring
 
-import future.keywords.in
-import future.keywords.contains
-import future.keywords.if
+import rego.v1
 
 # SOC2 CC7.2 — the entity monitors system components and the operation of
 # controls to detect anomalies. Maps loosely to PCI DSS Req 10 as well.

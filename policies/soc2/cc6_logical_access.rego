@@ -101,6 +101,6 @@ deny contains msg if {
 
 has_cmek(r) if {
 	enc := r.change.after.encryption[_]
-	enc.default_kms_key_name
+	enc.default_kms_key_name != null
 	enc.default_kms_key_name != ""
 }

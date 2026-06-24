@@ -1,28 +1,9 @@
 package pci_dss.network_segmentation
 
-import future.keywords.if
+import rego.v1
 
-test_deny_open_ssh_ingress if {
-	count(deny) > 0 with input as {"resource_changes": [{
-		"type": "google_compute_firewall",
-		"name": "allow_ssh_everywhere",
-		"change": {"after": {
-			"source_ranges": ["0.0.0.0/0"],
-			"allow": [{"ports": ["22"]}],
-		}},
-	}]}
-}
-
-test_allow_restricted_ssh_ingress if {
-	count(deny) == 0 with input as {"resource_changes": [{
-		"type": "google_compute_firewall",
-		"name": "allow_ssh_internal_only",
-		"change": {"after": {
-			"source_ranges": ["10.0.0.0/8"],
-			"allow": [{"ports": ["22"]}],
-		}},
-	}]}
-}
+# GCP google_compute_firewall tests are in tests/pci_dss/req_1_test.rego.
+# This file covers AWS security group rules, Azure NSRs, and pci-scope labels.
 
 test_deny_aws_port_range_covers_non_postgres_sensitive_port if {
 	count(deny) > 0 with input as {"resource_changes": [{
@@ -46,6 +27,20 @@ test_deny_aws_wide_port_range_overlapping_sensitive_port if {
 			"cidr_blocks": ["0.0.0.0/0"],
 			"from_port": 1,
 			"to_port": 65535,
+		}},
+	}]}
+}
+
+test_deny_aws_all_traffic_protocol_negative_one if {
+	count(deny) > 0 with input as {"resource_changes": [{
+		"type": "aws_security_group_rule",
+		"name": "allow_all_traffic",
+		"change": {"after": {
+			"type": "ingress",
+			"cidr_blocks": ["0.0.0.0/0"],
+			"protocol": "-1",
+			"from_port": 0,
+			"to_port": 0,
 		}},
 	}]}
 }
@@ -89,24 +84,6 @@ test_deny_azure_destination_port_ranges_plural_list_form if {
 	}]}
 }
 
-test_deny_aws_all_traffic_protocol_negative_one if {
-	# Regression test: AWS expresses "all traffic, all ports" as
-	# protocol = "-1", commonly with from_port/to_port = 0. Generalizing
-	# that to a "0-0" range check catches nothing, because 0 isn't in the
-	# sensitive_ports set — this needs a direct protocol check.
-	count(deny) > 0 with input as {"resource_changes": [{
-		"type": "aws_security_group_rule",
-		"name": "allow_all_traffic",
-		"change": {"after": {
-			"type": "ingress",
-			"cidr_blocks": ["0.0.0.0/0"],
-			"protocol": "-1",
-			"from_port": 0,
-			"to_port": 0,
-		}},
-	}]}
-}
-
 test_deny_payment_service_without_pci_scope_label if {
 	count(deny) > 0 with input as {"resource_changes": [{
 		"type": "google_cloud_run_v2_service",
@@ -116,10 +93,6 @@ test_deny_payment_service_without_pci_scope_label if {
 }
 
 test_deny_renamed_payment_service_still_caught if {
-	# This is the regression test for the name-based bypass a reviewer
-	# found: a service doing the exact same job as "payment_service" but
-	# named something innocuous must still be caught, because the rule no
-	# longer keys off the name at all.
 	count(deny) > 0 with input as {"resource_changes": [{
 		"type": "google_cloud_run_v2_service",
 		"name": "checkout_orchestrator",

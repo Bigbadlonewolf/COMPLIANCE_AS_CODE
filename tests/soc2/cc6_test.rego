@@ -95,3 +95,18 @@ test_allow_sql_encrypted if {
 		}},
 	}]}
 }
+
+# ── DENY: bucket with null CMEK key must not bypass check (CC6.7) ────────────
+
+test_deny_bucket_null_cmek_does_not_bypass if {
+	count([v | v := cc6.deny[_]; contains(v, "CC6.7")]) == 1 with input as {"resource_changes": [{
+		"address": "google_storage_bucket.null_cmek",
+		"type": "google_storage_bucket",
+		"change": {"actions": ["create"], "after": {
+			"uniform_bucket_level_access": true,
+			"public_access_prevention": "enforced",
+			"encryption": [{"default_kms_key_name": null}],
+			"versioning": [{"enabled": true}],
+		}},
+	}]}
+}

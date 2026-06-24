@@ -56,7 +56,7 @@ deny contains msg if {
 	)
 }
 
-# ── Rule 4: KMS ENCRYPT_DECRYPT keys must have rotation ≤ 1 year ───────────
+# ── Rule 4a: KMS ENCRYPT_DECRYPT keys must have rotation set ────────────────
 
 deny contains msg if {
 	r := input.resource_changes[_]
@@ -67,6 +67,22 @@ deny contains msg if {
 	msg := sprintf(
 		"PCI DSS 6.3.5 | %s: KMS crypto key has no rotation_period set. Automatic key rotation is required for CHD encryption keys.",
 		[r.address],
+	)
+}
+
+# ── Rule 4b: KMS rotation period must not exceed 1 year ─────────────────────
+
+deny contains msg if {
+	r := input.resource_changes[_]
+	r.type == "google_kms_crypto_key"
+	utils.is_active_change(r.change)
+	r.change.after.purpose == "ENCRYPT_DECRYPT"
+	r.change.after.rotation_period != null
+	period_seconds := to_number(trim_suffix(r.change.after.rotation_period, "s"))
+	period_seconds > utils.one_year_seconds
+	msg := sprintf(
+		"PCI DSS 6.3.5 | %s: KMS key rotation_period is %vs which exceeds 1 year (%vs). Keys encrypting CHD must rotate at least annually.",
+		[r.address, period_seconds, utils.one_year_seconds],
 	)
 }
 

@@ -1,24 +1,15 @@
 package nist_800_53.least_privilege
 
-import future.keywords.in
-import future.keywords.contains
-import future.keywords.if
+import rego.v1
 
-# NIST 800-53 AC-6 (Least Privilege) and AC-6(1) (Authorize Access to Security Functions)
-# This reuses the same underlying signal as PCI Req 7 — primitive/wildcard role grants —
-# because AC-6 and PCI 7.2.1 are testing the same control with different vocabulary.
-# Deliberately implemented once here and cross-referenced in the controls mapping,
-# rather than duplicated, so there's a single source of truth to maintain.
+# NIST SP 800-53 Rev 5 — AC-6 Least Privilege / AC-6(1) / IA-5(1)
+#
+# NOTE: Primitive IAM role checks (AC-6) are in nist_800_53/ac_access_control.rego
+# to avoid duplicate violation messages. This package covers additional signals:
+# static service account keys (long-lived exportable credentials) and oversized
+# IAM bindings that indicate access reviews aren't happening.
 
-deny contains msg if {
-	resource := input.resource_changes[_]
-	resource.type == "google_project_iam_member"
-	resource.change.after.role == "roles/owner"
-	msg := sprintf(
-		"'%s' granted roles/owner — NIST 800-53 AC-6(1) requires that security-relevant functions be restricted to a documented, minimal set of authorized users",
-		[resource.change.after.member],
-	)
-}
+# ── IA-5(1): Static service account keys create exportable long-lived secrets ─
 
 deny contains msg if {
 	resource := input.resource_changes[_]
@@ -28,6 +19,8 @@ deny contains msg if {
 		[resource.name],
 	)
 }
+
+# ── AC-6: Oversized IAM bindings indicate access review failures ─────────────
 
 deny contains msg if {
 	resource := input.resource_changes[_]

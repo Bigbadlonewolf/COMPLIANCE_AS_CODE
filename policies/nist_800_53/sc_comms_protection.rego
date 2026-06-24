@@ -72,10 +72,26 @@ deny contains msg if {
 	)
 }
 
+# ── SC-28: KMS rotation period must not exceed 1 year ────────────────────────
+
+deny contains msg if {
+	r := input.resource_changes[_]
+	r.type == "google_kms_crypto_key"
+	utils.is_active_change(r.change)
+	r.change.after.purpose == "ENCRYPT_DECRYPT"
+	r.change.after.rotation_period != null
+	period_seconds := to_number(trim_suffix(r.change.after.rotation_period, "s"))
+	period_seconds > utils.one_year_seconds
+	msg := sprintf(
+		"NIST SC-28 | %s: KMS key rotation_period is %vs which exceeds 1 year (%vs). Reduce rotation frequency to limit key compromise impact.",
+		[r.address, period_seconds, utils.one_year_seconds],
+	)
+}
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 has_cmek(r) if {
 	enc := r.change.after.encryption[_]
-	enc.default_kms_key_name
+	enc.default_kms_key_name != null
 	enc.default_kms_key_name != ""
 }

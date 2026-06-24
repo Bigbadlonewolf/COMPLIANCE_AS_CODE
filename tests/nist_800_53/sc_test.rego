@@ -92,3 +92,38 @@ test_allow_asymmetric_key_no_rotation if {
 		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ASYMMETRIC_SIGN", "rotation_period": null}},
 	}]}
 }
+
+# ── DENY: KMS rotation period exceeds 1 year (SC-28) ─────────────────────────
+
+test_deny_kms_rotation_period_exceeds_one_year if {
+	count([v | v := sc.deny[_]; contains(v, "exceeds 1 year")]) == 1 with input as {"resource_changes": [{
+		"address": "google_kms_crypto_key.slow_rotation",
+		"type": "google_kms_crypto_key",
+		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": "63072001s"}},
+	}]}
+}
+
+# ── ALLOW: KMS rotation period within 1 year ─────────────────────────────────
+
+test_allow_kms_rotation_period_within_one_year if {
+	count(sc.deny) == 0 with input as {"resource_changes": [{
+		"address": "google_kms_crypto_key.good_rotation",
+		"type": "google_kms_crypto_key",
+		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": "7776000s"}},
+	}]}
+}
+
+# ── DENY: bucket with null CMEK key must not bypass check (SC-28) ────────────
+
+test_deny_bucket_null_cmek_does_not_bypass if {
+	count([v | v := sc.deny[_]; contains(v, "Storage bucket")]) == 1 with input as {"resource_changes": [{
+		"address": "google_storage_bucket.null_cmek",
+		"type": "google_storage_bucket",
+		"change": {"actions": ["create"], "after": {
+			"uniform_bucket_level_access": true,
+			"public_access_prevention": "enforced",
+			"encryption": [{"default_kms_key_name": null}],
+			"versioning": [{"enabled": true}],
+		}},
+	}]}
+}

@@ -1,23 +1,9 @@
 package nist_800_53.least_privilege
 
-import future.keywords.if
-import future.keywords.in
+import rego.v1
 
-test_deny_owner_grant if {
-	count(deny) > 0 with input as {"resource_changes": [{
-		"type": "google_project_iam_member",
-		"name": "broad_grant",
-		"change": {"after": {"role": "roles/owner", "member": "user:contractor@example.com"}},
-	}]}
-}
-
-test_allow_scoped_grant if {
-	count(deny) == 0 with input as {"resource_changes": [{
-		"type": "google_project_iam_member",
-		"name": "scoped_grant",
-		"change": {"after": {"role": "roles/cloudsql.viewer", "member": "user:contractor@example.com"}},
-	}]}
-}
+# Primitive IAM role tests (including roles/owner) are in tests/nist_800_53/ac_test.rego.
+# This file covers service account keys and oversized IAM bindings.
 
 test_deny_static_service_account_key if {
 	count(deny) > 0 with input as {"resource_changes": [{

@@ -6,10 +6,15 @@ on:
       - "terraform/**"
       - "examples/terraform/**"
       - "policies/**"
+      - "tests/fixtures/**"
   push:
     branches: [main]
 
+env:
+  OPA_VERSION: "1.0.0"
+
 jobs:
+  # ── Gate: all fixture and conftest checks depend on this ────────────────────
   opa-unit-tests:
     name: OPA policy unit tests
     runs-on: ubuntu-latest
@@ -18,13 +23,20 @@ jobs:
 
       - name: Install OPA
         run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/v0.68.0/opa_linux_amd64_static
-          chmod +x opa
-          sudo mv opa /usr/local/bin/opa
+          curl -fsSL -o /usr/local/bin/opa \
+            https://github.com/open-policy-agent/opa/releases/download/v${{ env.OPA_VERSION }}/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+          opa version
 
       - name: Run policy unit tests
-        run: opa test policies/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v
+        run: |
+          opa test policies/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ \
+            --verbose --count=1 --format=pretty
 
+      - name: Check policy syntax
+        run: opa check policies/ --strict
+
+  # ── Conftest: examples/terraform/ ───────────────────────────────────────────
   conftest-noncompliant-must-fail:
     name: Conftest must REJECT the noncompliant example
     runs-on: ubuntu-latest
@@ -38,7 +50,6 @@ jobs:
           tar -xzf conftest.tar.gz
           sudo mv conftest /usr/local/bin/
 
-      # This step is EXPECTED to fail. If it passes, the policies are broken.
       - name: Conftest should reject this plan
         working-directory: examples/terraform/noncompliant
         run: |
@@ -68,3 +79,84 @@ jobs:
       - name: Conftest should accept this plan
         working-directory: examples/terraform/compliant
         run: conftest test plan.json --policy ../../../policies --all-namespaces
+
+  # ── OPA eval: tests/fixtures/ ────────────────────────────────────────────────
+  opa-eval-noncompliant-must-fail:
+    name: OPA eval must detect violations in noncompliant fixture
+    runs-on: ubuntu-latest
+    needs: opa-unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -fsSL -o /usr/local/bin/opa \
+            https://github.com/open-policy-agent/opa/releases/download/v${{ env.OPA_VERSION }}/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+
+      - name: Collect all deny violations from noncompliant fixture
+        id: violations
+        run: |
+          PCI=$(opa eval --data policies/ --input tests/fixtures/noncompliant.tfplan.json \
+            --format raw 'count([m | m := data.pci_dss[_].deny[_]])')
+          SOC=$(opa eval --data policies/ --input tests/fixtures/noncompliant.tfplan.json \
+            --format raw 'count([m | m := data.soc2[_].deny[_]])')
+          NIST=$(opa eval --data policies/ --input tests/fixtures/noncompliant.tfplan.json \
+            --format raw 'count([m | m := data.nist_800_53[_].deny[_]])')
+          echo "PCI DSS violations: $PCI"
+          echo "SOC2 violations:    $SOC"
+          echo "NIST 800-53:        $NIST"
+          COUNT=$((PCI + SOC + NIST))
+          echo "Total violations: $COUNT"
+          echo "violation_count=$COUNT" >> "$GITHUB_OUTPUT"
+          [ "$COUNT" -gt 0 ] || (echo "ERROR: noncompliant fixture produced 0 violations" && exit 1)
+
+      - name: Print violation summary
+        run: |
+          echo "### Noncompliant violations detected: ${{ steps.violations.outputs.violation_count }}" >> "$GITHUB_STEP_SUMMARY"
+          opa eval \
+            --data policies/ \
+            --input tests/fixtures/noncompliant.tfplan.json \
+            --format pretty \
+            '[m | m := data.pci_dss[_].deny[_]]' | head -80 >> "$GITHUB_STEP_SUMMARY" || true
+
+  opa-eval-compliant-must-pass:
+    name: OPA eval must find zero violations in compliant fixture
+    runs-on: ubuntu-latest
+    needs: opa-unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -fsSL -o /usr/local/bin/opa \
+            https://github.com/open-policy-agent/opa/releases/download/v${{ env.OPA_VERSION }}/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+
+      - name: Verify zero violations from compliant fixture
+        run: |
+          PCI=$(opa eval \
+            --data policies/ \
+            --input tests/fixtures/compliant.tfplan.json \
+            --format raw \
+            'count([m | m := data.pci_dss[_].deny[_]])')
+          SOC=$(opa eval \
+            --data policies/ \
+            --input tests/fixtures/compliant.tfplan.json \
+            --format raw \
+            'count([m | m := data.soc2[_].deny[_]])')
+          NIST=$(opa eval \
+            --data policies/ \
+            --input tests/fixtures/compliant.tfplan.json \
+            --format raw \
+            'count([m | m := data.nist_800_53[_].deny[_]])')
+          echo "PCI DSS violations: $PCI"
+          echo "SOC2 violations:    $SOC"
+          echo "NIST 800-53:        $NIST"
+          TOTAL=$((PCI + SOC + NIST))
+          echo "Total: $TOTAL"
+          [ "$TOTAL" -eq 0 ] || (echo "ERROR: compliant fixture has $TOTAL unexpected violations" && exit 1)
+
+      - name: Confirm clean pass
+        run: |
+          echo "### Compliant fixture: 0 violations across PCI DSS / SOC2 / NIST 800-53 ✅" >> "$GITHUB_STEP_SUMMARY"
