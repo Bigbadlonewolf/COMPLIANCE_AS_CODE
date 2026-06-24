@@ -23,7 +23,7 @@ jobs:
           sudo mv opa /usr/local/bin/opa
 
       - name: Run policy unit tests
-        run: opa test policies/ tests/ -v
+        run: opa test policies/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v
 
   conftest-noncompliant-must-fail:
     name: Conftest must REJECT the noncompliant example
