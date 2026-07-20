@@ -18,15 +18,15 @@ import data.lib.utils
 
 # ── Rule 1: SQL instances must have automated backups enabled ────────────────
 
+# Fires when backups are disabled AND when the backup_configuration block is
+# absent. No backups is the same violation whether it is explicit or by omission.
 deny contains msg if {
 	r := input.resource_changes[_]
 	r.type == "google_sql_database_instance"
 	utils.is_active_change(r.change)
-	settings := r.change.after.settings[_]
-	backup := settings.backup_configuration[_]
-	backup.enabled != true
+	not backups_enabled(r)
 	msg := sprintf(
-		"PCI DSS 10.3.2 | %s: Cloud SQL backup_configuration.enabled is false. Automated backups are required to protect audit and transaction logs.",
+		"PCI DSS 10.3.2 | %s: Cloud SQL backup_configuration is missing or enabled is not true. Automated backups are required to protect audit and transaction logs.",
 		[r.address],
 	)
 }
@@ -69,4 +69,9 @@ has_pgaudit_enabled(r) if {
 has_versioning_enabled(r) if {
 	ver := r.change.after.versioning[_]
 	ver.enabled == true
+}
+
+backups_enabled(r) if {
+	settings := r.change.after.settings[_]
+	settings.backup_configuration[_].enabled == true
 }

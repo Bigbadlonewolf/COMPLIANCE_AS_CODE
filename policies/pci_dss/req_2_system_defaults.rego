@@ -30,11 +30,14 @@ deny contains msg if {
 
 # ── Rule 2: Storage buckets must enable uniform bucket-level access ─────────
 
+# Fires when uniform_bucket_level_access is false AND when it is absent (the
+# provider does not default to uniform access), so an unset attribute is a
+# violation rather than a silent pass.
 deny contains msg if {
 	r := input.resource_changes[_]
 	r.type == "google_storage_bucket"
 	utils.is_active_change(r.change)
-	r.change.after.uniform_bucket_level_access != true
+	not uniform_access_enforced(r)
 	msg := sprintf(
 		"PCI DSS 2.2.1 | %s: Storage bucket does not enforce uniform_bucket_level_access. Legacy ACLs allow object-level permission bypass.",
 		[r.address],
@@ -52,4 +55,10 @@ deny contains msg if {
 		"PCI DSS 2.2.1 | %s: Storage bucket public_access_prevention is not 'enforced'. Set it to 'enforced' to block all public access.",
 		[r.address],
 	)
+}
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+uniform_access_enforced(r) if {
+	r.change.after.uniform_bucket_level_access == true
 }

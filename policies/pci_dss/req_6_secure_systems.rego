@@ -17,16 +17,17 @@ import data.lib.utils
 
 # ── Rule 1: SQL instances must enforce SSL-only connections ─────────────────
 
+# Fires when ssl_mode is wrong AND when the ip_configuration block (or ssl_mode
+# itself) is absent. GCP does not enforce TLS unless told to, so an absent
+# ip_configuration is the same violation as an explicit non-ENCRYPTED_ONLY value.
 deny contains msg if {
 	r := input.resource_changes[_]
 	r.type == "google_sql_database_instance"
 	utils.is_active_change(r.change)
-	settings := r.change.after.settings[_]
-	ip_config := settings.ip_configuration[_]
-	ip_config.ssl_mode != "ENCRYPTED_ONLY"
+	not ssl_enforced(r)
 	msg := sprintf(
-		"PCI DSS 6.5.3 | %s: Cloud SQL ssl_mode is '%v', not 'ENCRYPTED_ONLY'. All database connections must use TLS.",
-		[r.address, ip_config.ssl_mode],
+		"PCI DSS 6.5.3 | %s: Cloud SQL does not enforce ssl_mode = 'ENCRYPTED_ONLY' (ip_configuration block or ssl_mode is absent). All database connections must use TLS.",
+		[r.address],
 	)
 }
 
@@ -92,4 +93,9 @@ has_cmek(r) if {
 	enc := r.change.after.encryption[_]
 	enc.default_kms_key_name
 	enc.default_kms_key_name != ""
+}
+
+ssl_enforced(r) if {
+	settings := r.change.after.settings[_]
+	settings.ip_configuration[_].ssl_mode == "ENCRYPTED_ONLY"
 }
