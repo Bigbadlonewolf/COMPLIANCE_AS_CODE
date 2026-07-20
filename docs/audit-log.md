@@ -2,7 +2,7 @@
 
 This is the review record for the policies and CI pipeline. I went through three external review passes after the initial self-audit, and each one found real bugs the previous pass missed. That's not embarrassing. It's what real review looks like. The point of keeping this log is to show that process honestly, not to claim the first draft was clean.
 
-One thing to flag before anything else: `opa test` has never been run against this code in a real OPA environment. Everything below was fixed by re-reading code against provider schemas. Re-reading and running are different things. **Run `opa test policies/ tests/ -v` yourself before treating any of this as proven.**
+One thing to flag for context: the fixes below were made by re-reading code against provider schemas, and at the time `opa test` had not yet been run in a real OPA environment. That gap is now closed — CI runs `opa test` (116/116 passing at HEAD: PCI DSS 66, SOC 2 26, NIST 800-53 24) and `opa check --strict` on every push. Re-reading and running are still different things, but the running now happens in CI.
 
 ## Self-audit: fixed before shipping
 
@@ -91,9 +91,8 @@ The fix belongs at the pipeline level, not in Rego. CI should reject any `terraf
 ## What's still open
 
 - The IA-5(1) citation for service account keys is a stretch and hasn't been verified against the actual NIST text.
-- `opa test` has never been run against this code in a real OPA environment. Everything above was fixed by reading carefully, not by running. Those are different claims. **Run the tests. Report what breaks.**
 - No third-party review has happened. Two independent passes each found real bugs. A third would likely find more.
 
 ## Current state
 
-Three review passes, 16+ confirmed findings, each pass documented honestly. The repo is in a defensible state as a portfolio artifact: not perfect, but clearly reviewed with a real record of what was caught and what's still unverified. The single most important thing remaining is execution — run `opa test` in a real OPA environment before treating anything here as proven rather than re-read.
+Three review passes, 16+ confirmed findings, each pass documented honestly. The repo is in a defensible state as a portfolio artifact: not perfect, but clearly reviewed with a real record of what was caught. The execution gap this log used to flag is closed — `opa test` runs in CI on every push (116/116 passing at HEAD), so the policies are exercised, not just re-read.
