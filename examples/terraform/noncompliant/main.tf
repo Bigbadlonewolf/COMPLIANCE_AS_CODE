@@ -40,9 +40,12 @@ resource "google_sql_database_instance" "orders_db" {
 
   settings {
     tier = "db-custom-2-8192"
-    # no ip_configuration block -> defaults to a public IP, which is
-    # itself a second deliberate violation this example should be
-    # catching alongside the missing encryption_key_name.
+    # no ip_configuration block -> ssl_mode is unset, so TLS is not enforced.
+    # The req_6 ssl_mode rule treats an absent ip_configuration as a violation
+    # and catches this alongside the missing encryption_key_name; previously its
+    # positive comparison skipped the absent block entirely. (The req_2 public-IP
+    # rule still needs an explicit ipv4_enabled = true, so it is not what flags
+    # this.)
   }
 }
 

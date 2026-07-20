@@ -78,6 +78,7 @@ resource "google_sql_database_instance" "orders_db" {
 
     ip_configuration {
       ipv4_enabled    = false
+      ssl_mode        = "ENCRYPTED_ONLY"
       private_network = "projects/securecart-prod/global/networks/default"
     }
 
