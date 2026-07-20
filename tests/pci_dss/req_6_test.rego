@@ -113,3 +113,16 @@ test_allow_kms_rotation_period_within_one_year if {
 		}},
 	}]}
 }
+
+# ── DENY: SQL with no ip_configuration block (absent ssl_mode) ───────────────
+
+test_deny_sql_absent_ip_configuration if {
+	count([v | v := req_6.deny[_]; contains(v, "ssl_mode")]) == 1 with input as {"resource_changes": [{
+		"address": "google_sql_database_instance.no_ip_config",
+		"type": "google_sql_database_instance",
+		"change": {"actions": ["create"], "after": {
+			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
+			"settings": [{"tier": "db-custom-2-8192", "backup_configuration": [{"enabled": true}], "database_flags": []}],
+		}},
+	}]}
+}

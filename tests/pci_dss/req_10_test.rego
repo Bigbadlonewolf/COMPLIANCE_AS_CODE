@@ -88,3 +88,19 @@ test_allow_bucket_with_versioning if {
 		}},
 	}]}
 }
+
+# ── DENY: SQL with no backup_configuration block (absent backups) ────────────
+
+test_deny_sql_absent_backup_configuration if {
+	count([v | v := req_10.deny[_]; contains(v, "backup")]) == 1 with input as {"resource_changes": [{
+		"address": "google_sql_database_instance.no_backup_block",
+		"type": "google_sql_database_instance",
+		"change": {"actions": ["create"], "after": {
+			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
+			"settings": [{
+				"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}],
+				"database_flags": [{"name": "cloudsql.enable_pgaudit", "value": "on"}],
+			}],
+		}},
+	}]}
+}

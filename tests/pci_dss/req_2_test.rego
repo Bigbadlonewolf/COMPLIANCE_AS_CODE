@@ -74,3 +74,17 @@ test_allow_compliant_bucket if {
 		}},
 	}]}
 }
+
+# ── DENY: storage bucket with uniform_bucket_level_access unset ──────────────
+
+test_deny_bucket_absent_uniform_access if {
+	count([v | v := req_2.deny[_]; contains(v, "uniform_bucket_level_access")]) == 1 with input as {"resource_changes": [{
+		"address": "google_storage_bucket.absent_uniform",
+		"type": "google_storage_bucket",
+		"change": {"actions": ["create"], "after": {
+			"public_access_prevention": "enforced",
+			"encryption": [{"default_kms_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k"}],
+			"versioning": [{"enabled": true}],
+		}},
+	}]}
+}
