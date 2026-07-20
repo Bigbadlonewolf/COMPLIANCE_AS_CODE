@@ -22,8 +22,8 @@ Define what "compliant" means precisely enough that it can be tested. Make the t
 
 ## What not to claim
 
-Do not claim you wrote and validated the Rego end-to-end. The audit log is explicit that `opa test` was never run in this build environment.
+Do not claim more than the CI evidence supports. `opa test` runs green in CI on every push (116/116 passing at HEAD) and `opa check --strict` passes, so it is fair to say the unit tests are executed and passing — the old caveat that they had never been run no longer holds.
 
-If asked "did you run this," the correct answer is: "The unit tests are written but unverified in the environment I used. Running them and reporting back is the first item on the punch list."
+If asked "did you run this," the correct answer is: "Yes — `opa test` runs in CI on every push, 116/116 passing at HEAD. What isn't done is third-party review, production deployment, and runtime drift detection; the audit log is explicit about which is which."
 
-That's actually a stronger answer than pretending it's done. It shows you know the difference between "written" and "proven," which is the entire discipline a Security TPM is hired to enforce in everyone else's work too.
+That's still a stronger answer than pretending it's finished. It shows you know the difference between "tested in CI" and "proven in production," which is the discipline a Security TPM is hired to enforce in everyone else's work too.

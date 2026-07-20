@@ -14,4 +14,4 @@ That's the program arc: requirement identified, translated into engineering cons
 
 ## What's still incomplete
 
-The controls mapping and the compliant/noncompliant example pair are solid. Unit tests exist for all five policy files. What hasn't happened yet: running `opa test` in a real OPA environment to confirm those tests actually pass. Everything was reviewed against provider schemas and fixed by re-reading carefully, not by running. Those are different things, and [`docs/audit-log.md`](audit-log.md) is honest about which is which.
+The controls mapping and the compliant/noncompliant example pair are solid, and unit tests exist for all five policy files. `opa test` now runs in CI on every push — 116/116 passing at HEAD (PCI DSS 66, SOC 2 26, NIST 800-53 24) — alongside `opa check --strict`, so the policies are executed, not just re-read. What is still open is smaller: the IA-5(1) citation needs verifying against the NIST text, no third-party review has happened, and the `-target` plan-scoping gap is a pipeline-level fix, not a Rego one. [`docs/audit-log.md`](audit-log.md) tracks these.

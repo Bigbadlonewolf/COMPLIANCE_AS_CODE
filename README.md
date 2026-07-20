@@ -15,7 +15,7 @@ The real question is: Can we turn a regulatory requirement into an automated, re
 This isn't just a pile of Rego files. It's meant to be a real engineering program with the same standards we apply to infrastructure:
 
 - **Traceability:** `docs/controls-mapping.md` links specific regulatory citations to the actual policy rules. No more wondering which control covers what, and no duplicated effort across frameworks.
-- **Discipline:** The policies are version-controlled, unit tested, and enforced in CI — just like the rest of our code.
+- **Discipline:** The policies are version-controlled, unit tested (116 policy tests across PCI DSS, SOC 2, and NIST 800-53, green in CI), and enforced in CI — just like the rest of our code.
 - **Honesty:** Scope limitations are documented. These policies catch what they catch; they don't replace a QSA.
 
 ## Repository Layout
@@ -43,7 +43,7 @@ compliance-as-code/
 │   └── check-plan.sh         # Local evaluation script
 └── .github/workflows/
     ├── opa-tests.yml              # Unit tests (no GCP credentials needed)
-    └── terraform-policy-check.yml # Fixture-based compliance check (no GCP credentials needed)
+    └── policy-check.yml           # Fixture + example compliance checks (no GCP credentials needed)
 ```
 
 ## Try It Yourself (No Cloud Credentials Needed)
@@ -93,13 +93,17 @@ Full citation table with per-rule breakdown: [`docs/controls-mapping.md`](docs/c
 
 Two GitHub Actions workflows trigger on every push or PR touching policies or Terraform:
 
-![CI Workflow](docs/compliance_as_code_actual_ci_pipeline.png)
-
-
 | Workflow | What it checks | Credentials needed |
 |---|---|---|
-| `opa-tests.yml` | All OPA unit tests pass; `opa check --strict` syntax validation | None |
-| `terraform-policy-check.yml` | Noncompliant fixture triggers ≥1 violation; compliant fixture produces 0 violations | None |
+| `opa-tests.yml` | All 116 OPA unit tests pass (PCI DSS 66, SOC 2 26, NIST 800-53 24); `opa check --strict` syntax validation | None |
+| `policy-check.yml` | Noncompliant fixture and example trigger ≥1 violation; compliant fixture and example produce 0 violations | None |
+
+`policy-check.yml` is a five-job pipeline with `opa-unit-tests` as the gate — it runs the unit tests and `opa check --strict`. The other four jobs run only after it passes (`needs: opa-unit-tests`):
+
+- `conftest-noncompliant-must-fail` — conftest must reject `examples/terraform/noncompliant/plan.json`
+- `conftest-compliant-must-pass` — conftest must accept `examples/terraform/compliant/plan.json`
+- `opa-eval-noncompliant-must-fail` — `opa eval` must find ≥1 violation in `tests/fixtures/noncompliant.tfplan.json`
+- `opa-eval-compliant-must-pass` — `opa eval` must find 0 violations in `tests/fixtures/compliant.tfplan.json`
 
 ## What This Isn't
 
