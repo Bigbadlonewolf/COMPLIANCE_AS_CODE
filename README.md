@@ -14,8 +14,8 @@ The real question is: Can we turn a regulatory requirement into an automated, re
 
 This isn't just a pile of Rego files. It's meant to be a real engineering program with the same standards we apply to infrastructure:
 
-- **Traceability:** `docs/controls-mapping.md` links specific regulatory citations to the actual policy rules. No more wondering which control covers what, and no duplicated effort across frameworks.
-- **Discipline:** The policies are version-controlled, unit tested (116 policy tests across PCI DSS, SOC 2, and NIST 800-53, green in CI), and enforced in CI — just like the rest of our code.
+- **Traceability:** `docs/controls-mapping.md` links specific regulatory citations to the actual policy rules. No more wondering which control covers what, and no duplicated effort across frameworks — each check is implemented **once** in `policies/controls/`, and the framework packages attach citations to it.
+- **Discipline:** The policies are version-controlled, unit tested (150 policy tests — 45 control, 105 framework — green in CI), and enforced in CI — just like the rest of our code.
 - **Honesty:** Scope limitations are documented. These policies catch what they catch; they don't replace a QSA.
 
 ## Repository Layout
@@ -24,11 +24,13 @@ This isn't just a pile of Rego files. It's meant to be a real engineering progra
 compliance-as-code/
 ├── policies/
 │   ├── lib/utils.rego        # Shared constants (primitive roles, sensitive ports, etc.)
+│   ├── controls/             # THE DETECTION LOGIC — one file per control, no deny rules
 │   ├── pci_dss/              # req_1 network, req_2 defaults, req_6 encryption, req_7 access, req_10 logging
 │   ├── soc2/                 # cc6 logical access, cc7 system operations
 │   └── nist_800_53/          # ac access control, au audit logging, sc comms protection
 ├── tests/
-│   ├── pci_dss/              # Unit tests — deny path + allow path for every rule
+│   ├── controls/             # Detection logic — deny path + allow path for every control
+│   ├── pci_dss/              # Citation tests + framework-local rules
 │   ├── soc2/
 │   ├── nist_800_53/
 │   └── fixtures/
@@ -67,7 +69,7 @@ opa eval -d policies/ -i tests/fixtures/noncompliant.tfplan.json \
 
 ## OPA Version
 
-Requires **OPA v0.59+**. New policies (`req_*`, `cc*`, `ac`, `au`, `sc`) use `import rego.v1`. Legacy policies (`network_segmentation`, `access_control`, `encryption_at_rest`, `logging_monitoring`, `least_privilege`) use `import future.keywords` — both syntaxes coexist without conflict. CI installs OPA v1.0.0.
+Requires **OPA v1.0+**. Every policy file uses `import rego.v1` — verified across all policy files, with no `import future.keywords` remaining. CI installs OPA v1.0.0 and Conftest v0.55.0.
 
 ```bash
 # Install (Linux)
@@ -95,7 +97,7 @@ Two GitHub Actions workflows trigger on every push or PR touching policies or Te
 
 | Workflow | What it checks | Credentials needed |
 |---|---|---|
-| `opa-tests.yml` | All 116 OPA unit tests pass (PCI DSS 66, SOC 2 26, NIST 800-53 24); `opa check --strict` syntax validation | None |
+| `opa-tests.yml` | All 150 OPA unit tests pass (controls 45, PCI DSS 60, SOC 2 23, NIST 800-53 22); `opa check --strict` syntax validation | None |
 | `policy-check.yml` | Noncompliant fixture and example trigger ≥1 violation; compliant fixture and example produce 0 violations | None |
 
 `policy-check.yml` is a five-job pipeline with `opa-unit-tests` as the gate — it runs the unit tests and `opa check --strict`. The other four jobs run only after it passes (`needs: opa-unit-tests`):

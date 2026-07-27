@@ -4,109 +4,71 @@ import rego.v1
 
 import data.soc2.cc6
 
-# ── DENY: primitive roles ────────────────────────────────────────────────────
+# cc6 is a CITATION LAYER over controls.privileged_access, controls.tls_in_transit
+# and controls.cmek_at_rest. Detection logic is asserted once in tests/controls/;
+# these tests prove only that SOC 2 cites the right criterion per control.
 
-test_deny_primitive_role_member if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.3")]) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.bad",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {"project": "p", "role": "roles/editor", "member": "user:dev@example.com"}},
-	}]}
+iam(rtype, after) := {"resource_changes": [{
+	"address": sprintf("%s.t", [rtype]),
+	"type": rtype,
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+sql(after) := {"resource_changes": [{
+	"address": "google_sql_database_instance.t",
+	"type": "google_sql_database_instance",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+bucket(after) := {"resource_changes": [{
+	"address": "google_storage_bucket.t",
+	"type": "google_storage_bucket",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+cited(msgs, citation) if count([m | m := msgs[_]; startswith(m, citation)]) > 0
+
+# ── CC6.3 — role-based access ───────────────────────────────────────────────
+
+test_primitive_role_cites_cc6_3 if {
+	cited(cc6.deny, "SOC2 CC6.3") with input as iam("google_project_iam_member", {"role": "roles/editor"})
 }
 
-test_deny_primitive_role_binding if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.3")]) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_binding.bad",
-		"type": "google_project_iam_binding",
-		"change": {"actions": ["create"], "after": {"project": "p", "role": "roles/viewer", "members": ["user:bob@example.com"]}},
-	}]}
+# ── CC6.1 — logical access restricted to authorized personnel ───────────────
+
+test_public_member_cites_cc6_1 if {
+	cited(cc6.deny, "SOC2 CC6.1") with input as iam("google_project_iam_member", {"member": "allUsers"})
 }
 
-# ── DENY: public members ─────────────────────────────────────────────────────
+# ── CC6.6 — transmission encryption ─────────────────────────────────────────
 
-test_deny_all_users if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.1")]) >= 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.public",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {"project": "p", "role": "roles/viewer", "member": "allUsers"}},
-	}]}
+test_tls_cites_cc6_6 if {
+	cited(cc6.deny, "SOC2 CC6.6") with input as sql({"encryption_key_name": "k", "settings": [{"ip_configuration": [{"ssl_mode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"}]}]})
 }
 
-# ── DENY: SQL without SSL ────────────────────────────────────────────────────
-
-test_deny_sql_unencrypted_connections if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.6")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.bad",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+# REGRESSION: this criterion used to require an ip_configuration block to exist
+# before testing ssl_mode, so an instance without one passed silently.
+test_absent_ip_configuration_cites_cc6_6 if {
+	msgs := [m | m := cc6.deny[_]; startswith(m, "SOC2 CC6.6")] with input as sql({"encryption_key_name": "k", "settings": [{"tier": "t"}]})
+	count(msgs) == 1
+	contains(msgs[0], "'absent'")
 }
 
-# ── DENY: bucket without CMEK ────────────────────────────────────────────────
+# ── CC6.7 — at-rest encryption ──────────────────────────────────────────────
 
-test_deny_bucket_no_cmek if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.7")]) == 1 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.no_cmek",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [],
-			"versioning": [{"enabled": true}],
-		}},
-	}]}
+test_bucket_cmek_cites_cc6_7 if {
+	cited(cc6.deny, "SOC2 CC6.7") with input as bucket({"encryption": []})
 }
 
-# ── DENY: SQL without CMEK ───────────────────────────────────────────────────
-
-test_deny_sql_no_cmek if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.7")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.no_cmek",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": null,
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+test_sql_cmek_cites_cc6_7 if {
+	cited(cc6.deny, "SOC2 CC6.7") with input as sql({"encryption_key_name": null, "settings": [{"ip_configuration": [{"ssl_mode": "ENCRYPTED_ONLY"}]}]})
 }
 
-# ── ALLOW: compliant IAM member ───────────────────────────────────────────────
+# ── Allow path ──────────────────────────────────────────────────────────────
 
-test_allow_specific_role if {
-	count(cc6.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.good",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {"project": "p", "role": "roles/cloudsql.client", "member": "serviceAccount:sa@p.iam.gserviceaccount.com"}},
-	}]}
-}
-
-# ── ALLOW: compliant SQL ─────────────────────────────────────────────────────
-
-test_allow_sql_encrypted if {
-	count(cc6.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.good",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
-}
-
-# ── DENY: bucket with null CMEK key must not bypass check (CC6.7) ────────────
-
-test_deny_bucket_null_cmek_does_not_bypass if {
-	count([v | v := cc6.deny[_]; contains(v, "CC6.7")]) == 1 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.null_cmek",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [{"default_kms_key_name": null}],
-			"versioning": [{"enabled": true}],
-		}},
-	}]}
+test_compliant_sql_produces_no_findings if {
+	count(cc6.deny) == 0 with input as sql({
+		"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
+		"settings": [{"ip_configuration": [{"ssl_mode": "ENCRYPTED_ONLY"}]}],
+	})
 }

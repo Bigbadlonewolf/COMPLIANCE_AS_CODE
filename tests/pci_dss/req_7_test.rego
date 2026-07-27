@@ -4,94 +4,47 @@ import rego.v1
 
 import data.pci_dss.req_7
 
-# ── DENY: primitive role on google_project_iam_member ────────────────────────
+# req_7 is a CITATION LAYER over controls.privileged_access. Detection logic —
+# which roles count as primitive, which members count as public, the member vs
+# binding plan shapes, destroy-only changes — is asserted once in
+# tests/controls/privileged_access_test.rego. These tests prove only that PCI
+# cites the right requirement, and that the two message shapes stay distinct.
 
-test_deny_owner_role_member if {
-	count(req_7.deny) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.bad",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/owner",
-			"member": "user:admin@example.com",
-		}},
-	}]}
+iam(rtype, after) := {"resource_changes": [{
+	"address": sprintf("%s.t", [rtype]),
+	"type": rtype,
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+cited(msgs, citation) if count([m | m := msgs[_]; startswith(m, citation)]) > 0
+
+# ── 7.2.5 — least privilege, no primitive roles ─────────────────────────────
+
+test_primitive_role_cites_7_2_5 if {
+	cited(req_7.deny, "PCI DSS 7.2.5") with input as iam("google_project_iam_member", {"role": "roles/owner"})
 }
 
-test_deny_editor_role_member if {
-	count(req_7.deny) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.editor",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/editor",
-			"member": "serviceAccount:sa@project.iam.gserviceaccount.com",
-		}},
-	}]}
+# ── 7.2.6 — user IDs and authentication factors managed rigorously ──────────
+
+test_public_member_cites_7_2_6 if {
+	cited(req_7.deny, "PCI DSS 7.2.6") with input as iam("google_project_iam_member", {"member": "allUsers"})
 }
 
-# ── DENY: primitive role on google_project_iam_binding ───────────────────────
-
-test_deny_owner_role_binding if {
-	count(req_7.deny) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_binding.bad",
-		"type": "google_project_iam_binding",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/owner",
-			"members": ["user:admin@example.com"],
-		}},
-	}]}
+# The member and binding shapes carry deliberately different wording. Splitting
+# them is the reason controls.privileged_access tags findings with `shape`, so
+# both paths are asserted here rather than assumed.
+test_member_and_binding_wording_stay_distinct if {
+	member_msg := [m | m := req_7.deny[_]][0] with input as iam("google_project_iam_member", {"member": "allUsers"})
+	binding_msg := [m | m := req_7.deny[_]][0] with input as iam("google_project_iam_binding", {"members": ["allUsers"]})
+	contains(member_msg, "IAM member")
+	contains(binding_msg, "IAM binding")
 }
 
-# ── DENY: public member (allUsers) ───────────────────────────────────────────
+# ── Allow path ──────────────────────────────────────────────────────────────
 
-test_deny_all_users_member if {
-	count([v | v := req_7.deny[_]; contains(v, "allUsers")]) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.public",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/viewer",
-			"member": "allUsers",
-		}},
-	}]}
-}
-
-test_deny_all_authenticated_users if {
-	count([v | v := req_7.deny[_]; contains(v, "allAuthenticatedUsers")]) == 1 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.semi_public",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/viewer",
-			"member": "allAuthenticatedUsers",
-		}},
-	}]}
-}
-
-# ── ALLOW: least-privilege service account roles ─────────────────────────────
-
-test_allow_specific_role_service_account if {
-	count(req_7.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.good",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/cloudsql.client",
-			"member": "serviceAccount:sa-app@my-project.iam.gserviceaccount.com",
-		}},
-	}]}
-}
-
-test_allow_logging_role if {
-	count(req_7.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_project_iam_member.log_writer",
-		"type": "google_project_iam_member",
-		"change": {"actions": ["create"], "after": {
-			"project": "my-project",
-			"role": "roles/logging.logWriter",
-			"member": "serviceAccount:sa-build@ops-project.iam.gserviceaccount.com",
-		}},
-	}]}
+test_predefined_role_produces_no_findings if {
+	count(req_7.deny) == 0 with input as iam("google_project_iam_member", {
+		"role": "roles/cloudsql.client",
+		"member": "serviceAccount:sa-app@my-project.iam.gserviceaccount.com",
+	})
 }

@@ -2,30 +2,35 @@
 
 This is the most important document in the repo. The policies are the enforcement mechanism; this is the evidence trail an auditor or hiring manager reads first.
 
-## PCI DSS v4.0
+## The crosswalk
 
-| Policy file | What it checks | Requirements |
-|---|---|---|
-| `pci_dss/req_1_network_controls.rego` | Deny INGRESS firewall rules with sensitive ports (SSH, RDP, DB) open to `0.0.0.0/0`; deny `protocol = all` from internet | **Req 1.3.2** |
-| `pci_dss/req_2_system_defaults.rego` | Deny Cloud SQL with public IP; deny storage buckets without uniform access or public access prevention | **Req 2.2.1** |
-| `pci_dss/req_6_secure_systems.rego` | Deny Cloud SQL without CMEK or `ssl_mode = ENCRYPTED_ONLY`; deny storage without CMEK; deny KMS keys with no rotation or rotation period exceeding 1 year | **Req 6.3.5, 6.5.3** |
-| `pci_dss/req_7_access_control.rego` | Deny primitive IAM roles (`owner`, `editor`, `viewer`) at project level; deny `allUsers`/`allAuthenticatedUsers` | **Req 7.2.5, 7.2.6** |
-| `pci_dss/req_10_logging.rego` | Deny Cloud SQL without automated backups or `cloudsql.enable_pgaudit`; deny storage without versioning | **Req 10.2.1, 10.3.2** |
+Each row is **one check, implemented once** in `policies/controls/`. The framework packages import it and attach their own citation — they contain no detection logic of their own. Read a row left-to-right to answer "what does this enforce, and which requirement does each framework call it?"
 
-## SOC2 Trust Service Criteria (2017)
+| Control (`policies/controls/`) | What it denies | PCI DSS v4.0 | SOC 2 TSC | NIST 800-53 Rev 5 |
+| --- | --- | --- | --- | --- |
+| `privileged_access.primitive_role` | Project-level `roles/owner`, `roles/editor`, `roles/viewer` | **7.2.5** | **CC6.3** | **AC-6** |
+| `privileged_access.public_member` | `allUsers` / `allAuthenticatedUsers` on a project IAM member or binding | **7.2.6** | **CC6.1** | **AC-3** |
+| `tls_in_transit` | Cloud SQL not enforcing `ssl_mode = ENCRYPTED_ONLY`, including an absent `ip_configuration` block | **6.5.3** | **CC6.6** | **SC-8** |
+| `cmek_at_rest` | Cloud SQL or storage bucket without a customer-managed key, including an explicit `null` key | **6.3.5** | **CC6.7** | **SC-28** |
+| `key_rotation` | KMS `ENCRYPT_DECRYPT` keys with no `rotation_period`, or one exceeding 1 year | **6.3.5** | **CC7.1** | **SC-28** |
+| `sql_backups` | Cloud SQL without automated backups, including an absent `backup_configuration` block | **10.3.2** | **CC8.1** | — |
+| `object_versioning` | Storage buckets without object versioning | **10.3.2** | **CC7.2** | **AU-9** |
 
-| Policy file | What it checks | Criteria |
-|---|---|---|
-| `soc2/cc6_logical_access.rego` | Deny primitive IAM roles; deny public members; deny Cloud SQL without SSL; deny storage and SQL without CMEK | **CC6.1, CC6.3, CC6.6, CC6.7** |
-| `soc2/cc7_system_operations.rego` | Deny Cloud SQL without backups; deny KMS keys without rotation or with rotation > 1 year; deny storage without versioning | **CC7.1, CC7.2, CC8.1** |
+A dash means that framework has no counterpart control in this repo — not that the requirement does not exist.
 
-## NIST SP 800-53 Rev 5
+## Framework-local checks
 
-| Policy file | What it checks | Controls |
-|---|---|---|
-| `nist_800_53/ac_access_control.rego` | Deny primitive IAM roles; deny public IAM members; deny firewall rules exposing remote-access ports from `0.0.0.0/0` | **AC-3, AC-6, AC-17** |
-| `nist_800_53/au_audit_logging.rego` | Deny Cloud SQL without `cloudsql.enable_pgaudit` or `log_connections`; deny storage without versioning or uniform access | **AU-2, AU-9, AU-12** |
-| `nist_800_53/sc_comms_protection.rego` | Deny Cloud SQL without TLS or CMEK; deny storage without CMEK; deny KMS ENCRYPT_DECRYPT keys without rotation | **SC-8, SC-28** |
+These have no counterpart in the other frameworks, so they stay in their framework package rather than `controls/`. Promoting a check with one consumer to a shared package adds indirection and buys nothing.
+
+| Policy file | What it checks | Citation |
+| --- | --- | --- |
+| `pci_dss/req_1_network_controls.rego` | INGRESS firewall rules with sensitive ports (SSH, RDP, DB) open to `0.0.0.0/0`; `protocol = all` from the internet | **1.3.2** |
+| `pci_dss/req_2_system_defaults.rego` | Cloud SQL with a public IP; buckets without uniform access or public access prevention | **2.2.1** |
+| `pci_dss/req_10_logging.rego` | Cloud SQL missing the `cloudsql.enable_pgaudit` flag | **10.2.1** |
+| `nist_800_53/ac_access_control.rego` | Firewall rules exposing remote-access ports from `0.0.0.0/0` | **AC-17** |
+| `nist_800_53/au_audit_logging.rego` | Cloud SQL missing `cloudsql.enable_pgaudit` or `log_connections`; buckets without uniform access | **AU-2, AU-12, AU-9** |
+
+The five unnumbered policy files (`access_control`, `encryption_at_rest`, `network_segmentation`, `logging_monitoring`, `least_privilege`) are **not yet represented in this table**. They carry additional checks — AWS IAM policy wildcards, Cloud Run IAM conditions, org-policy constraints — and mapping them is outstanding work. Stated here rather than left as a silent gap.
 
 ---
 
@@ -42,9 +47,17 @@ Every citation should be verified against the primary-source PDFs before use in 
 
 ## Why One Control Maps to Multiple Frameworks
 
-PCI DSS 7.2.5, SOC2 CC6.3, and NIST AC-6 are all testing the same thing: least privilege. Three standards bodies wrote them independently with different vocabulary. Rather than implementing the same logic three times in three separate files, the deny rules in `req_7_access_control.rego`, `cc6_logical_access.rego`, and `ac_access_control.rego` each reference the same `lib.utils.primitive_roles` set and are cross-referenced here with their respective citations.
+PCI DSS 7.2.5, SOC2 CC6.3, and NIST AC-6 are all testing the same thing: least privilege. Three standards bodies wrote them independently with different vocabulary.
 
 One underlying check. Three framework citations. Single place to update when GCP changes an API field.
+
+**This was aspirational until 2026-07-26.** The three packages shared the `lib.utils.primitive_roles` *data*, but each implemented the *logic* separately — five checks across fifteen rule bodies. They had already drifted apart, and the drift was not cosmetic: three of them had become false negatives, each one a case where a framework passed infrastructure the other two rejected.
+
+- `soc2/cc6` and `nist_800_53/sc` bound `ip_configuration[_]` before testing `ssl_mode`, so a Cloud SQL instance with no such block passed both. GCP does not enforce TLS unless told to.
+- `pci_dss/req_6` tested bucket CMEK with a bare truthiness check. In Rego `null` is a **defined** value, so an explicit `default_kms_key_name = null` read as "key present".
+- `soc2/cc7` bound `backup_configuration[_]` before testing `enabled`, so an instance with no backup block passed.
+
+Detection logic now lives once per control in `policies/controls/`. Each merged control carries a `CORRECTNESS NOTE` recording which implementation won and why. See `audit-log.md`.
 
 ---
 

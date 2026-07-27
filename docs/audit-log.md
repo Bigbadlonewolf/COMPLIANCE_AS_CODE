@@ -2,7 +2,28 @@
 
 This is the review record for the policies and CI pipeline. I went through three external review passes after the initial self-audit, and each one found real bugs the previous pass missed. That's not embarrassing. It's what real review looks like. The point of keeping this log is to show that process honestly, not to claim the first draft was clean.
 
-One thing to flag for context: the fixes below were made by re-reading code against provider schemas, and at the time `opa test` had not yet been run in a real OPA environment. That gap is now closed — CI runs `opa test` (116/116 passing at HEAD: PCI DSS 66, SOC 2 26, NIST 800-53 24) and `opa check --strict` on every push. Re-reading and running are still different things, but the running now happens in CI.
+One thing to flag for context: the fixes below were made by re-reading code against provider schemas, and at the time `opa test` had not yet been run in a real OPA environment. That gap is now closed — CI runs `opa test` (150/150 passing at HEAD: controls 45, PCI DSS 60, SOC 2 23, NIST 800-53 22) and `opa check --strict` on every push. Re-reading and running are still different things, but the running now happens in CI.
+
+## 2026-07-26 — Crosswalk refactor, and the three false negatives it exposed
+
+The worst findings in this log are here, and they were not found by reading the policies. They were found by trying to merge them.
+
+Five checks were implemented three times each — once per framework — for fifteen rule bodies in total. Merging them into `policies/controls/` forced a line-by-line comparison of the three versions of each check, and that comparison showed they had silently drifted apart. Three had become false negatives. Each is a case where one framework **passed** infrastructure that the other two rejected.
+
+| # | Finding | Severity | Fix |
+| --- | --- | --- | --- |
+| 1 | `soc2/cc6` and `nist_800_53/sc` bound `ip_configuration[_]` before testing `ssl_mode`. A Cloud SQL instance with **no `ip_configuration` block at all** produced no finding from either. GCP does not enforce TLS unless explicitly told to, so an absent block is exactly as non-compliant as a wrong value. A SOC 2 run passed a database with TLS unenforced. | **High** | Canonical check in `controls/tls_in_transit`, negating an `enforced` helper so absence is a finding. Reports `'absent'` as the observed mode. |
+| 2 | `pci_dss/req_6` tested bucket CMEK with a bare truthiness check on `default_kms_key_name`. In Rego `null` is a **defined** value, so an explicit `default_kms_key_name = null` satisfied the reference and read as "CMEK present". A PCI run passed a bucket with no customer-managed key. | **High** | Canonical check in `controls/cmek_at_rest` using explicit `!= null`. Extended to Cloud SQL's `encryption_key_name`, which also handles the field being absent rather than null. |
+| 3 | `soc2/cc7` bound `backup_configuration[_]` before testing `enabled`, so an instance with **no backup configuration at all** passed CC8.1. Only `pci_dss/req_10` caught it. | **High** | Canonical check in `controls/sql_backups`, same negated-helper shape. |
+| 4 | `controls/key_rotation` — found while writing tests for the new layer — used `== null`, so an *absent* `rotation_period` slipped through while `cmek_at_rest` treated absence as a violation. The control layer had two different answers to "what does a missing field mean". | Medium | Made consistent: negated helper, absence and null behave identically. |
+
+**Why the existing tests did not catch any of this.** Each framework's tests were written against that framework's own implementation, so they encoded the bug as expected behaviour. And the CI fixtures never exercised the buggy paths — the noncompliant Cloud SQL instance *had* an `ip_configuration`, and the noncompliant bucket had `encryption: []` rather than a null key. 116 tests and five CI jobs, all green, all blind.
+
+Fixtures were extended with three resources covering exactly these shapes. Noncompliant fixture violations rose 15→18 (PCI), 9→12 (SOC 2), 12→14 (NIST); the compliant fixture still produces zero.
+
+**On the test count.** It moved 116 → 150, but the framework total *fell* — detection logic is now asserted once in `tests/controls/` (45 tests) instead of three times under three framework names, and the framework tests that became pure citation wrappers were thinned to assert citations only. More coverage, less duplication. A raw test count was never the useful number; `docs/controls-mapping.md` is.
+
+**Verification.** Every deny message on both fixtures was captured before the refactor and diffed after: byte-identical across all six framework/fixture combinations, which is what proves the restructure did not change Conftest's behaviour. The fixture-count changes above came afterwards and only from the deliberately added resources.
 
 ## Self-audit: fixed before shipping
 
@@ -95,4 +116,4 @@ The fix belongs at the pipeline level, not in Rego. CI should reject any `terraf
 
 ## Current state
 
-Three review passes, 16+ confirmed findings, each pass documented honestly. The repo is in a defensible state as a portfolio artifact: not perfect, but clearly reviewed with a real record of what was caught. The execution gap this log used to flag is closed — `opa test` runs in CI on every push (116/116 passing at HEAD), so the policies are exercised, not just re-read.
+Three review passes, 16+ confirmed findings, each pass documented honestly. The repo is in a defensible state as a portfolio artifact: not perfect, but clearly reviewed with a real record of what was caught. The execution gap this log used to flag is closed — `opa test` runs in CI on every push (150/150 passing at HEAD), so the policies are exercised, not just re-read.

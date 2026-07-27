@@ -2,6 +2,7 @@ package nist_800_53.au
 
 import rego.v1
 
+import data.controls.object_versioning
 import data.lib.utils
 
 # NIST SP 800-53 Rev 5 — AU: Audit and Accountability
@@ -47,13 +48,10 @@ deny contains msg if {
 # ── AU-9: Storage buckets must have versioning to protect audit integrity ─────
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_storage_bucket"
-	utils.is_active_change(r.change)
-	not has_versioning_enabled(r)
+	f := object_versioning.not_enabled[_]
 	msg := sprintf(
 		"NIST AU-9 | %s: Storage bucket versioning is not enabled. Versioning protects audit logs from unauthorized deletion or modification.",
-		[r.address],
+		[f.address],
 	)
 }
 
@@ -77,9 +75,4 @@ has_flag(r, name, value) if {
 	flag := settings.database_flags[_]
 	flag.name == name
 	flag.value == value
-}
-
-has_versioning_enabled(r) if {
-	ver := r.change.after.versioning[_]
-	ver.enabled == true
 }

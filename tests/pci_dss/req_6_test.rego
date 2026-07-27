@@ -4,125 +4,62 @@ import rego.v1
 
 import data.pci_dss.req_6
 
-# ── DENY: SQL without SSL enforcement ────────────────────────────────────────
+# req_6 is a CITATION LAYER over controls.tls_in_transit, controls.cmek_at_rest
+# and controls.key_rotation. The detection logic — absent blocks, null fields,
+# rotation boundaries, destroy-only changes — is asserted once in
+# tests/controls/. These tests prove only that PCI cites the right requirement
+# for each control, which is the thing this package is responsible for.
 
-test_deny_sql_no_ssl if {
-	count([v | v := req_6.deny[_]; contains(v, "ssl_mode")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.bad_ssl",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+sql(after) := {"resource_changes": [{
+	"address": "google_sql_database_instance.t",
+	"type": "google_sql_database_instance",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+bucket(after) := {"resource_changes": [{
+	"address": "google_storage_bucket.t",
+	"type": "google_storage_bucket",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+key(after) := {"resource_changes": [{
+	"address": "google_kms_crypto_key.t",
+	"type": "google_kms_crypto_key",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+cited(msgs, citation) if count([m | m := msgs[_]; startswith(m, citation)]) > 0
+
+# ── 6.5.3 — transmission of CHD over open networks ──────────────────────────
+
+test_tls_cites_6_5_3 if {
+	cited(req_6.deny, "PCI DSS 6.5.3") with input as sql({"encryption_key_name": "k", "settings": [{"tier": "t"}]})
 }
 
-# ── DENY: SQL without CMEK ───────────────────────────────────────────────────
+# ── 6.3.5 — CHD at rest encrypted with strong cryptography ──────────────────
 
-test_deny_sql_no_cmek if {
-	count([v | v := req_6.deny[_]; contains(v, "CMEK")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.no_cmek",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": null,
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+test_sql_cmek_cites_6_3_5 if {
+	cited(req_6.deny, "PCI DSS 6.3.5") with input as sql({"encryption_key_name": null, "settings": [{"ip_configuration": [{"ssl_mode": "ENCRYPTED_ONLY"}]}]})
 }
 
-# ── DENY: storage bucket without CMEK ────────────────────────────────────────
-
-test_deny_bucket_no_cmek if {
-	count(req_6.deny) == 1 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.no_cmek",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [],
-			"versioning": [{"enabled": true}],
-		}},
-	}]}
+test_bucket_cmek_cites_6_3_5 if {
+	cited(req_6.deny, "PCI DSS 6.3.5") with input as bucket({"encryption": []})
 }
 
-# ── DENY: KMS key without rotation ───────────────────────────────────────────
-
-test_deny_kms_no_rotation if {
-	count(req_6.deny) == 1 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.no_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {
-			"name": "my-key",
-			"purpose": "ENCRYPT_DECRYPT",
-			"rotation_period": null,
-		}},
-	}]}
+test_missing_key_rotation_cites_6_3_5 if {
+	cited(req_6.deny, "PCI DSS 6.3.5") with input as key({"purpose": "ENCRYPT_DECRYPT", "rotation_period": null})
 }
 
-# ── ALLOW: fully compliant SQL ───────────────────────────────────────────────
-
-test_allow_compliant_sql if {
-	count(req_6.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.good",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/sql",
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+test_excessive_key_rotation_cites_6_3_5 if {
+	msgs := [m | m := req_6.deny[_]; contains(m, "exceeds 1 year")] with input as key({"purpose": "ENCRYPT_DECRYPT", "rotation_period": "63072001s"})
+	count(msgs) == 1
 }
 
-# ── ALLOW: asymmetric signing key skips rotation check ───────────────────────
+# ── Allow path: a fully compliant instance produces nothing ─────────────────
 
-test_allow_asymmetric_key_no_rotation if {
-	count(req_6.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.signing",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {
-			"name": "signing-key",
-			"purpose": "ASYMMETRIC_SIGN",
-			"rotation_period": null,
-		}},
-	}]}
-}
-
-# ── DENY: KMS rotation period exceeds 1 year ─────────────────────────────────
-
-test_deny_kms_rotation_period_exceeds_one_year if {
-	count([v | v := req_6.deny[_]; contains(v, "exceeds 1 year")]) == 1 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.slow_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {
-			"name": "slow-key",
-			"purpose": "ENCRYPT_DECRYPT",
-			"rotation_period": "63072001s",
-		}},
-	}]}
-}
-
-# ── ALLOW: KMS rotation period within 1 year ─────────────────────────────────
-
-test_allow_kms_rotation_period_within_one_year if {
-	count(req_6.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.good_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {
-			"name": "good-key",
-			"purpose": "ENCRYPT_DECRYPT",
-			"rotation_period": "7776000s",
-		}},
-	}]}
-}
-
-# ── DENY: SQL with no ip_configuration block (absent ssl_mode) ───────────────
-
-test_deny_sql_absent_ip_configuration if {
-	count([v | v := req_6.deny[_]; contains(v, "ssl_mode")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.no_ip_config",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
-			"settings": [{"tier": "db-custom-2-8192", "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+test_compliant_sql_produces_no_findings if {
+	count(req_6.deny) == 0 with input as sql({
+		"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/sql",
+		"settings": [{"ip_configuration": [{"ssl_mode": "ENCRYPTED_ONLY"}]}],
+	})
 }

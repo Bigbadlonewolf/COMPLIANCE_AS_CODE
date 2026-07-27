@@ -17,10 +17,10 @@ Remote: `Bigbadlonewolf/COMPLIANCE_AS_CODE` (public).
 ## Commands
 
 ```bash
-# Run all OPA unit tests — 116/116 PASS (verified 2026-07-26)
+# Run all OPA unit tests — 150/150 PASS (verified 2026-07-26)
 # Subdirectories MUST be enumerated. Passing `tests/` loads tests/fixtures/*.json
 # as OPA data and fails with a JSON merge conflict.
-opa test policies/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v
+opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v
 
 # Run a single test package
 opa test policies/ tests/pci_dss/req_1_test.rego -v
@@ -49,11 +49,13 @@ A Windows `opa.exe` may be present in the project root for local runs. It is **g
 ```
 policies/
   lib/utils.rego          — Shared constants: primitive_roles, public_members, sensitive_ports
-  pci_dss/                — One file per PCI DSS requirement
-  soc2/                   — One file per SOC2 criteria cluster (CC6, CC7)
-  nist_800_53/            — One file per NIST control family (AC, AU, SC)
+  controls/               — THE DETECTION LOGIC. One file per control, shared across frameworks.
+  pci_dss/                — One file per PCI DSS requirement (citation layer)
+  soc2/                   — One file per SOC2 criteria cluster (citation layer)
+  nist_800_53/            — One file per NIST control family (citation layer)
 tests/
-  pci_dss/ soc2/ nist_800_53/ — Mirror of policies/; each file has deny + allow test cases
+  controls/               — Detection logic: deny + allow paths, edge cases, regressions
+  pci_dss/ soc2/ nist_800_53/ — Citation assertions + framework-local rules
   fixtures/               — Pre-generated plan JSON. NOT a test directory; see Commands.
     compliant.tfplan.json     — Should produce 0 violations
     noncompliant.tfplan.json  — Should produce violations across all frameworks
@@ -83,6 +85,19 @@ This is the single easiest thing to get wrong here. There are three directories 
 
 Editing `terraform/` does **not** change what CI evaluates. The Conftest jobs read `examples/terraform/`, and its `plan.json` is committed — regenerate and commit it, or the policy change will not be exercised.
 
+### Controls vs framework packages — read before editing any policy
+
+Three standards bodies wrote the same requirement three times with different vocabulary. PCI DSS 7.2.5, SOC 2 CC6.3 and NIST AC-6 are all "least privilege". So the repo splits **what is checked** from **what it is called**:
+
+- **`policies/controls/`** owns detection logic. One file per control. Each exposes a findings-style set and **deliberately no `deny` / `violation` / `warn` rule** — those are Conftest's reserved rule names, and `conftest test --all-namespaces` would report every finding twice: once from the control, once from each framework citing it.
+- **`policies/{pci_dss,soc2,nist_800_53}/`** own citations and wording. They import a control and wrap its findings in a message carrying their own requirement number. No detection logic.
+
+Changing **what counts as a violation** belongs in `controls/`. Changing **how a framework phrases it** belongs in the framework package.
+
+This split exists because the previous structure — the same check implemented once per framework — had already produced three false negatives, where one framework silently passed infrastructure the other two rejected. See `docs/audit-log.md` § 2026-07-26. If you find yourself copying a rule body between framework files, that is the bug reproducing itself.
+
+A check with only one consumer stays in its framework package (e.g. `has_pgaudit_enabled` in `req_10`). Promoting it would add indirection and buy nothing.
+
 ### CI jobs (`policy-check.yml`)
 
 1. `opa-unit-tests` — unit tests + `opa check --strict`
@@ -95,7 +110,7 @@ Jobs 2 and 3 are inverted assertions: a *passing* build requires the noncomplian
 
 ## OPA Policy Conventions
 
-- All files use `import rego.v1` (OPA v1.0+ syntax; no `import future.keywords` needed) — verified across all 16 policy files
+- All files use `import rego.v1` (OPA v1.0+ syntax; no `import future.keywords` needed) — verified across all 22 policy files
 - Deny rules are partial sets: `deny contains msg if { ... }`
 - Only fires on `"create"` or `"update"` actions — destroy-only changes are ignored
 - `input` shape is Terraform plan JSON from `terraform show -json` (`input.resource_changes[_].change.after`)
@@ -105,10 +120,11 @@ Jobs 2 and 3 are inverted assertions: a *passing* build requires the noncomplian
 ## Test Conventions
 
 - Test package: `pci_dss.req_1_test` tests `data.pci_dss.req_1`
-- Every test file has both deny-path tests (bad config → violation) and allow-path tests (good config → no violation)
-- Use `with input as { "resource_changes": [...] }` to inject minimal fixture data
+- **`tests/controls/` asserts behaviour; framework tests assert citations.** Edge cases, absent blocks, null fields, and destroy-only changes belong in the control test — asserting them again per framework is the duplication this structure removed.
+- Every control test has both deny-path and allow-path cases
+- Use `with input as { "resource_changes": [...] }` to inject minimal fixture data; each test file defines a small `sql(after)` / `bucket(after)` helper rather than inlining full plan JSON per test
 - Filter specific violations: `[v | v := deny[_]; contains(v, "keyword")]`
-- Current count: 116 tests — PCI DSS 66, SOC 2 26, NIST 800-53 24
+- Current count: 150 tests — controls 45, PCI DSS 60, SOC 2 23, NIST 800-53 22
 
 ## Key Schema Notes (google provider v5.x)
 
@@ -129,10 +145,22 @@ In OPA, `null` is a defined value — `not r.change.after.field` fails when `fie
 
 ## Adding or Changing a Policy
 
-1. Write the rule in `policies/<framework>/`, mirroring existing file naming.
-2. Add both deny-path and allow-path tests in `tests/<framework>/`.
-3. Add the control citation to `docs/controls-mapping.md` — the citation must match a real requirement in PCI DSS v4.0 / SOC 2 TSC / NIST 800-53 Rev 5.
-4. If the rule should be caught by Conftest, update `examples/terraform/noncompliant/main.tf` **and regenerate its committed `plan.json`**.
-5. Run the full test command above before committing.
+**First decide: does more than one framework cite this check?**
+
+If **yes** (the common case — most infrastructure controls appear in all three):
+
+1. Write the detection logic in `policies/controls/<name>.rego`. Expose a findings-style set. **Never a `deny`, `violation`, or `warn` rule.**
+2. Add behaviour tests in `tests/controls/<name>_test.rego` — deny path, allow path, and the edge cases: absent block, explicit `null`, destroy-only change.
+3. In each citing framework package, add a `deny` rule that iterates the control's findings and formats a message with that framework's requirement number.
+4. Add one citation test per framework in `tests/<framework>/`, asserting the right requirement is cited. Do not re-test the logic there.
+5. Add a row to the crosswalk table in `docs/controls-mapping.md`.
+
+If **no** (single framework, e.g. pgaudit), write it directly in that framework's package with its tests, and add it to the framework-local table in `docs/controls-mapping.md`.
+
+Then, either way:
+
+- If the rule should be caught by Conftest, update `examples/terraform/noncompliant/main.tf` **and regenerate its committed `plan.json`**.
+- If it fixes a false negative, add a resource to `tests/fixtures/noncompliant.tfplan.json` so CI would catch a regression — and record the violation-count delta.
+- Run the full test command above before committing.
 
 Never weaken or delete a policy to make a build pass without updating `docs/controls-mapping.md` and the corresponding tests.

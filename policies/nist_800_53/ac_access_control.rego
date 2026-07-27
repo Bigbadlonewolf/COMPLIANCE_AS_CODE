@@ -2,6 +2,7 @@ package nist_800_53.ac
 
 import rego.v1
 
+import data.controls.privileged_access
 import data.lib.utils
 
 # NIST SP 800-53 Rev 5 — AC: Access Control
@@ -24,38 +25,30 @@ import data.lib.utils
 # ── AC-3 / AC-6: Deny primitive project-level roles ─────────────────────────
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type in {"google_project_iam_member", "google_project_iam_binding"}
-	utils.is_active_change(r.change)
-	r.change.after.role in utils.primitive_roles
+	f := privileged_access.primitive_role[_]
 	msg := sprintf(
 		"NIST AC-6 | %s: Primitive role '%s' violates least-privilege. Assign purpose-specific predefined roles (e.g. roles/cloudsql.client, roles/storage.objectViewer).",
-		[r.address, r.change.after.role],
+		[f.address, f.role],
 	)
 }
 
 # ── AC-3: Deny public IAM members ───────────────────────────────────────────
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_project_iam_member"
-	utils.is_active_change(r.change)
-	r.change.after.member in utils.public_members
+	f := privileged_access.public_member[_]
+	f.shape == "member"
 	msg := sprintf(
 		"NIST AC-3 | %s: Member '%s' grants access without authentication. All project access must be restricted to identified principals.",
-		[r.address, r.change.after.member],
+		[f.address, f.member],
 	)
 }
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_project_iam_binding"
-	utils.is_active_change(r.change)
-	member := r.change.after.members[_]
-	member in utils.public_members
+	f := privileged_access.public_member[_]
+	f.shape == "binding"
 	msg := sprintf(
 		"NIST AC-3 | %s: Binding includes public member '%s'. Access control policies must enforce authenticated access.",
-		[r.address, member],
+		[f.address, f.member],
 	)
 }
 

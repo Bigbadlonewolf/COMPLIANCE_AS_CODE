@@ -6,6 +6,7 @@ on:
       - "terraform/**"
       - "examples/terraform/**"
       - "policies/**"
+      - "tests/controls/**"
       - "tests/fixtures/**"
   push:
     branches: [main]
@@ -28,9 +29,11 @@ jobs:
           chmod +x /usr/local/bin/opa
           opa version
 
+      # Test subdirectories MUST be enumerated — passing tests/ pulls in
+      # tests/fixtures/*.json as OPA data and fails on a JSON merge conflict.
       - name: Run policy unit tests
         run: |
-          opa test policies/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ \
+          opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ \
             --verbose --count=1 --format=pretty
 
       - name: Check policy syntax

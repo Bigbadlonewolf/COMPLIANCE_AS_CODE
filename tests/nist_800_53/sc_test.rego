@@ -4,126 +4,73 @@ import rego.v1
 
 import data.nist_800_53.sc
 
-# ── DENY: SQL without TLS (SC-8) ────────────────────────────────────────────
+# sc is a CITATION LAYER over controls.tls_in_transit, controls.cmek_at_rest and
+# controls.key_rotation. Detection logic — absent blocks, null fields, the
+# asymmetric-key exclusion, rotation boundaries — is asserted once in
+# tests/controls/. These tests prove only that NIST cites the right control.
 
-test_deny_sql_no_tls if {
-	count([v | v := sc.deny[_]; contains(v, "SC-8")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.no_tls",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+sql(after) := {"resource_changes": [{
+	"address": "google_sql_database_instance.t",
+	"type": "google_sql_database_instance",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+bucket(after) := {"resource_changes": [{
+	"address": "google_storage_bucket.t",
+	"type": "google_storage_bucket",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+key(after) := {"resource_changes": [{
+	"address": "google_kms_crypto_key.t",
+	"type": "google_kms_crypto_key",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+cited(msgs, citation) if count([m | m := msgs[_]; startswith(m, citation)]) > 0
+
+# ── SC-8 — transmission confidentiality and integrity ───────────────────────
+
+test_tls_cites_sc_8 if {
+	cited(sc.deny, "NIST SC-8") with input as sql({"encryption_key_name": "k", "settings": [{"ip_configuration": [{"ssl_mode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"}]}]})
 }
 
-# ── DENY: SQL without CMEK (SC-28) ──────────────────────────────────────────
-
-test_deny_sql_no_cmek if {
-	count([v | v := sc.deny[_]; contains(v, "Cloud SQL has no CMEK")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.no_cmek",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": null,
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+# REGRESSION: SC-8 used to require an ip_configuration block to exist before
+# testing ssl_mode, so an instance without one passed silently.
+test_absent_ip_configuration_cites_sc_8 if {
+	msgs := [m | m := sc.deny[_]; startswith(m, "NIST SC-8")] with input as sql({"encryption_key_name": "k", "settings": [{"tier": "t"}]})
+	count(msgs) == 1
+	contains(msgs[0], "'absent'")
 }
 
-# ── DENY: bucket without CMEK (SC-28) ────────────────────────────────────────
+# ── SC-28 — protection of information at rest ───────────────────────────────
 
-test_deny_bucket_no_cmek if {
-	count([v | v := sc.deny[_]; contains(v, "Storage bucket")]) == 1 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.no_cmek",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [],
-			"versioning": [{"enabled": true}],
-		}},
-	}]}
+test_sql_cmek_cites_sc_28 if {
+	cited(sc.deny, "NIST SC-28") with input as sql({"encryption_key_name": null, "settings": [{"ip_configuration": [{"ssl_mode": "ENCRYPTED_ONLY"}]}]})
 }
 
-# ── DENY: KMS key without rotation (SC-28) ───────────────────────────────────
-
-test_deny_kms_no_rotation if {
-	count([v | v := sc.deny[_]; contains(v, "KMS crypto key has no rotation_period")]) == 1 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.no_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": null}},
-	}]}
+test_bucket_cmek_cites_sc_28 if {
+	cited(sc.deny, "NIST SC-28") with input as bucket({"encryption": []})
 }
 
-# ── ALLOW: fully compliant SQL ────────────────────────────────────────────────
-
-test_allow_compliant_sql if {
-	count(sc.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.good",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
-			"settings": [{"ip_configuration": [{"ipv4_enabled": false, "ssl_mode": "ENCRYPTED_ONLY"}], "backup_configuration": [{"enabled": true}], "database_flags": []}],
-		}},
-	}]}
+test_missing_key_rotation_cites_sc_28 if {
+	cited(sc.deny, "NIST SC-28") with input as key({"purpose": "ENCRYPT_DECRYPT", "rotation_period": null})
 }
 
-# ── ALLOW: compliant bucket with CMEK ────────────────────────────────────────
-
-test_allow_bucket_with_cmek if {
-	count(sc.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.good",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [{"default_kms_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k"}],
-			"versioning": [{"enabled": true}],
-		}},
-	}]}
+test_excessive_key_rotation_cites_sc_28 if {
+	msgs := [m | m := sc.deny[_]; contains(m, "exceeds 1 year")] with input as key({"purpose": "ENCRYPT_DECRYPT", "rotation_period": "63072001s"})
+	count(msgs) == 1
 }
 
-# ── ALLOW: asymmetric key without rotation ────────────────────────────────────
+# ── Allow paths ─────────────────────────────────────────────────────────────
 
-test_allow_asymmetric_key_no_rotation if {
-	count(sc.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.signing",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ASYMMETRIC_SIGN", "rotation_period": null}},
-	}]}
+test_compliant_sql_produces_no_findings if {
+	count(sc.deny) == 0 with input as sql({
+		"encryption_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k",
+		"settings": [{"ip_configuration": [{"ssl_mode": "ENCRYPTED_ONLY"}]}],
+	})
 }
 
-# ── DENY: KMS rotation period exceeds 1 year (SC-28) ─────────────────────────
-
-test_deny_kms_rotation_period_exceeds_one_year if {
-	count([v | v := sc.deny[_]; contains(v, "exceeds 1 year")]) == 1 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.slow_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": "63072001s"}},
-	}]}
-}
-
-# ── ALLOW: KMS rotation period within 1 year ─────────────────────────────────
-
-test_allow_kms_rotation_period_within_one_year if {
-	count(sc.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.good_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": "7776000s"}},
-	}]}
-}
-
-# ── DENY: bucket with null CMEK key must not bypass check (SC-28) ────────────
-
-test_deny_bucket_null_cmek_does_not_bypass if {
-	count([v | v := sc.deny[_]; contains(v, "Storage bucket")]) == 1 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.null_cmek",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [{"default_kms_key_name": null}],
-			"versioning": [{"enabled": true}],
-		}},
-	}]}
+test_compliant_bucket_produces_no_findings if {
+	count(sc.deny) == 0 with input as bucket({"encryption": [{"default_kms_key_name": "projects/p/locations/us/keyRings/k/cryptoKeys/k"}]})
 }

@@ -27,9 +27,12 @@ jobs:
           chmod +x /usr/local/bin/opa
           opa version
 
+      # Test subdirectories MUST be enumerated. Passing tests/ loads
+      # tests/fixtures/*.json as OPA data and aborts on a JSON merge conflict.
+      # A new tests/<dir>/ must be added here or its tests silently never run.
       - name: Run all unit tests (deny + allow paths)
         run: |
-          opa test policies/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ \
+          opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ \
             --verbose \
             --count=1 \
             --format=pretty

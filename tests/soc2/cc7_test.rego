@@ -4,81 +4,60 @@ import rego.v1
 
 import data.soc2.cc7
 
-# ── DENY: SQL without backups ────────────────────────────────────────────────
+# cc7 is a CITATION LAYER over controls.sql_backups, controls.key_rotation and
+# controls.object_versioning. Detection logic is asserted once in tests/controls/;
+# these tests prove only that SOC 2 cites the right criterion per control.
 
-test_deny_sql_no_backups if {
-	count([v | v := cc7.deny[_]; contains(v, "CC8.1")]) == 1 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.no_backup",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"settings": [{"backup_configuration": [{"enabled": false}]}],
-		}},
-	}]}
+sql(after) := {"resource_changes": [{
+	"address": "google_sql_database_instance.t",
+	"type": "google_sql_database_instance",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+bucket(after) := {"resource_changes": [{
+	"address": "google_storage_bucket.t",
+	"type": "google_storage_bucket",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+key(after) := {"resource_changes": [{
+	"address": "google_kms_crypto_key.t",
+	"type": "google_kms_crypto_key",
+	"change": {"actions": ["create"], "after": after},
+}]}
+
+cited(msgs, citation) if count([m | m := msgs[_]; startswith(m, citation)]) > 0
+
+# ── CC8.1 — change management includes backup and recovery ──────────────────
+
+test_backups_cite_cc8_1 if {
+	cited(cc7.deny, "SOC2 CC8.1") with input as sql({"settings": [{"backup_configuration": [{"enabled": false}]}]})
 }
 
-# ── DENY: KMS key with no rotation ───────────────────────────────────────────
-
-test_deny_kms_no_rotation if {
-	count([v | v := cc7.deny[_]; contains(v, "no rotation_period")]) == 1 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.no_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": null}},
-	}]}
+# REGRESSION: an absent backup_configuration block used to pass this criterion.
+test_absent_backup_block_cites_cc8_1 if {
+	cited(cc7.deny, "SOC2 CC8.1") with input as sql({"settings": [{"tier": "t"}]})
 }
 
-# ── DENY: KMS key with rotation > 1 year ─────────────────────────────────────
+# ── CC7.1 — detection and monitoring of anomalies ───────────────────────────
 
-test_deny_kms_rotation_too_long if {
-	count([v | v := cc7.deny[_]; contains(v, "exceeds 1 year")]) == 1 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.long_rotation",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": "63072000s"}},
-	}]}
+test_missing_key_rotation_cites_cc7_1 if {
+	cited(cc7.deny, "SOC2 CC7.1") with input as key({"purpose": "ENCRYPT_DECRYPT", "rotation_period": null})
 }
 
-# ── DENY: bucket without versioning ──────────────────────────────────────────
-
-test_deny_bucket_no_versioning if {
-	count([v | v := cc7.deny[_]; contains(v, "CC7.2")]) == 1 with input as {"resource_changes": [{
-		"address": "google_storage_bucket.no_ver",
-		"type": "google_storage_bucket",
-		"change": {"actions": ["create"], "after": {
-			"uniform_bucket_level_access": true,
-			"public_access_prevention": "enforced",
-			"encryption": [{"default_kms_key_name": "k"}],
-			"versioning": [],
-		}},
-	}]}
+test_excessive_key_rotation_cites_cc7_1 if {
+	msgs := [m | m := cc7.deny[_]; contains(m, "exceeds 1 year")] with input as key({"purpose": "ENCRYPT_DECRYPT", "rotation_period": "63072000s"})
+	count(msgs) == 1
 }
 
-# ── ALLOW: SQL with backups ───────────────────────────────────────────────────
+# ── CC7.2 — anomalies and security events are identified ────────────────────
 
-test_allow_sql_with_backups if {
-	count(cc7.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_sql_database_instance.good",
-		"type": "google_sql_database_instance",
-		"change": {"actions": ["create"], "after": {
-			"settings": [{"backup_configuration": [{"enabled": true, "point_in_time_recovery_enabled": true}]}],
-		}},
-	}]}
+test_versioning_cites_cc7_2 if {
+	cited(cc7.deny, "SOC2 CC7.2") with input as bucket({"versioning": []})
 }
 
-# ── ALLOW: KMS key with 90-day rotation ──────────────────────────────────────
+# ── Allow path ──────────────────────────────────────────────────────────────
 
-test_allow_kms_90_day_rotation if {
-	count(cc7.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.good",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ENCRYPT_DECRYPT", "rotation_period": "7776000s"}},
-	}]}
-}
-
-# ── ALLOW: asymmetric key without rotation (not ENCRYPT_DECRYPT) ─────────────
-
-test_allow_asymmetric_key if {
-	count(cc7.deny) == 0 with input as {"resource_changes": [{
-		"address": "google_kms_crypto_key.signing",
-		"type": "google_kms_crypto_key",
-		"change": {"actions": ["create"], "after": {"name": "k", "purpose": "ASYMMETRIC_SIGN", "rotation_period": null}},
-	}]}
+test_compliant_sql_produces_no_findings if {
+	count(cc7.deny) == 0 with input as sql({"settings": [{"backup_configuration": [{"enabled": true}]}]})
 }

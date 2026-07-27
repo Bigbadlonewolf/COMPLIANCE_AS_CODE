@@ -2,7 +2,9 @@ package soc2.cc7
 
 import rego.v1
 
-import data.lib.utils
+import data.controls.key_rotation
+import data.controls.object_versioning
+import data.controls.sql_backups
 
 # SOC2 Trust Service Criteria — CC7: System Operations
 #
@@ -12,71 +14,52 @@ import data.lib.utils
 # CC8.1  Change management — system changes follow defined procedures including
 #         backup and recovery capabilities.
 #
-# Resource types checked:
+# This package is a CITATION LAYER. Detection logic lives in policies/controls/
+# and is shared with pci_dss and nist_800_53 — see docs/controls-mapping.md.
+#
+# NOTE: CC8.1 previously required a backup_configuration block to exist before
+# testing `enabled`, so a Cloud SQL instance with no such block silently passed.
+# The shared control treats an absent block as a violation.
+#
+# Resource types checked (via controls):
 #   google_sql_database_instance
 #   google_kms_crypto_key
 #   google_storage_bucket
 
-# ── CC8.1: SQL must have automated backups with PITR enabled ────────────────
+# ── CC8.1: SQL must have automated backups ──────────────────────────────────
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_sql_database_instance"
-	utils.is_active_change(r.change)
-	settings := r.change.after.settings[_]
-	backup := settings.backup_configuration[_]
-	backup.enabled != true
+	f := sql_backups.not_enabled[_]
 	msg := sprintf(
 		"SOC2 CC8.1 | %s: Cloud SQL automated backups are disabled. Backups are required to support incident recovery and change rollback.",
-		[r.address],
+		[f.address],
 	)
 }
 
-# ── CC7.1: KMS ENCRYPT_DECRYPT keys must have automatic rotation ─────────────
-# Keys without rotation create a long-lived secret that undermines key hygiene.
+# ── CC7.1: KMS ENCRYPT_DECRYPT keys must have automatic rotation ────────────
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_kms_crypto_key"
-	utils.is_active_change(r.change)
-	r.change.after.purpose == "ENCRYPT_DECRYPT"
-	r.change.after.rotation_period == null
+	f := key_rotation.missing[_]
 	msg := sprintf(
 		"SOC2 CC7.1 | %s: KMS ENCRYPT_DECRYPT key has no rotation_period. Set rotation_period to 7776000s (90 days) or less.",
-		[r.address],
+		[f.address],
 	)
 }
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_kms_crypto_key"
-	utils.is_active_change(r.change)
-	r.change.after.purpose == "ENCRYPT_DECRYPT"
-	r.change.after.rotation_period != null
-	period_seconds := to_number(trim_suffix(r.change.after.rotation_period, "s"))
-	period_seconds > utils.one_year_seconds
+	f := key_rotation.excessive[_]
 	msg := sprintf(
 		"SOC2 CC7.1 | %s: KMS key rotation_period is %vs which exceeds 1 year (%vs). Reduce rotation frequency.",
-		[r.address, period_seconds, utils.one_year_seconds],
+		[f.address, f.seconds, f.limit],
 	)
 }
 
-# ── CC7.2: Storage buckets must have versioning for tamper detection ──────────
+# ── CC7.2: Storage buckets must have versioning for tamper detection ────────
 
 deny contains msg if {
-	r := input.resource_changes[_]
-	r.type == "google_storage_bucket"
-	utils.is_active_change(r.change)
-	not has_versioning_enabled(r)
+	f := object_versioning.not_enabled[_]
 	msg := sprintf(
 		"SOC2 CC7.2 | %s: Storage bucket versioning is not enabled. Versioning is required to detect and recover from unauthorized object modifications.",
-		[r.address],
+		[f.address],
 	)
-}
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-has_versioning_enabled(r) if {
-	ver := r.change.after.versioning[_]
-	ver.enabled == true
 }
