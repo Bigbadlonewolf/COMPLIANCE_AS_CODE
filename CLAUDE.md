@@ -1,31 +1,55 @@
 # CLAUDE.md
 
-> **Scope.** This folder owns OPA/Conftest policy enforcement for PCI DSS, SOC 2, and NIST 800-53 against GCP Terraform plans.
-> If the prompt is about anything else, return to the workspace router `ROUTER.md` § Task Routing and route from there. Do not search sideways through the workspace — `node_modules/` at the workspace root and in two projects makes a recursive scan time out.
-> `pickup` and `handoff` are defined once in the workspace `AGENTS.md` §4–§5.
+> **Scope.** This folder owns OPA/Conftest policy enforcement for PCI DSS v4.0, SOC 2 TSC (2017), and NIST SP 800-53 Rev 5 against GCP Terraform.
 >
-> Paths above are workspace files that sit outside this repository. If you are reading this in a standalone clone, they will not be present — everything needed to work on this repo is in this file.
+> If the prompt is about anything else, return to the root router [`CONTEXT.md`](../../CONTEXT.md) § Task Routing Table and route from there. Do not search sideways through the workspace — recursive scans across `node_modules/` at the root and in sibling projects will time out.
+>
+> **Session continuity:** `pickup` = resume a previous session by reading the root `CLAUDE.md` § Session Continuity. `handoff` = write a `.handoff` file with current state for the next session.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What This Is
+---
 
-OPA (Open Policy Agent) policy-as-code library that enforces PCI DSS v4.0, SOC2 TSC (2017), and NIST SP 800-53 Rev 5 controls against GCP Terraform plans at deploy time. Targets the `hashicorp/google` provider v5.x.
+## Prerequisites
 
-Remote: `Bigbadlonewolf/COMPLIANCE_AS_CODE` (public).
+| Tool | Minimum Version | Purpose |
+|------|-----------------|---------|
+| OPA | ≥ 1.0 | `import rego.v1` syntax; unit test runner |
+| Terraform | ≥ 1.5 | Plan generation for fixture updates |
+| Conftest | ≥ 0.50 | CI gating against raw `.tfplan` files |
+| `jq` | any | Plan JSON inspection |
+
+---
+
+## Quick Reference: OPA vs. Conftest
+
+| Task | Tool | Command |
+|------|------|---------|
+| Unit-test a policy rule | OPA | `opa test policies/ tests/controls/ tests/pci_dss/ -v` |
+| Gate a PR against a Terraform plan | Conftest | `conftest test tfplan.json -p policies/ --data exceptions/registry.yaml` |
+| Lint all Rego | OPA | `opa check policies/ --strict` |
+| Debug why a rule fired / didn't fire | OPA | `opa test ... --verbose --explain full` |
+| Evaluate a fixture against one framework | OPA | `opa eval -d policies/ -i fixture.json 'data.pci_dss[_].deny[_]'` |
+
+**Rule of thumb:** OPA for development and unit tests; Conftest for CI/CD gating. Do not mix them in the same command.
+
+---
 
 ## Commands
 
 ```bash
-# Run all OPA unit tests — 150/150 PASS (verified 2026-07-26)
-# Subdirectories MUST be enumerated. Passing `tests/` loads tests/fixtures/*.json
-# as OPA data and fails with a JSON merge conflict.
+# Run all OPA unit tests
+# WRONG: `opa test . -v` silently loads fixtures/ as data bundles, causing path collisions.
+# ALSO WRONG: omitting tests/controls/ — it skips 45 of 163 tests and still reports green.
 opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v
 
-# Run a single test package
-opa test policies/ tests/pci_dss/req_1_test.rego -v
+# Validate the exception registry (relative path is required — see below)
+opa eval -d exceptions/ 'data.exceptions_validate.errors'
 
-# Lint/parse check all policies
+# Run the gate the way CI does, with the registry loaded
+conftest test examples/terraform/noncompliant/plan.json --policy policies --data exceptions/registry.yaml --all-namespaces
+
+# Lint / parse check all policies
 opa check policies/ --strict
 
 # Evaluate a plan JSON against all policies
@@ -35,132 +59,282 @@ opa check policies/ --strict
 opa eval -d policies/ -i tests/fixtures/noncompliant.tfplan.json \
   '[m | m := data.pci_dss[_].deny[_]]'
 
-# Generate a plan JSON from Terraform (requires GCP auth)
-cd terraform/compliant
-terraform init -backend=false
-terraform plan -var="project_id=myproject" -var="kms_key_id=fake" -out=tfplan.binary
-terraform show -json tfplan.binary > plan.json
+# Reproduce CI locally
+act -j opa-tests
+act -j conftest-gate
 ```
 
-A Windows `opa.exe` may be present in the project root for local runs. It is **gitignored, not committed** — CI installs OPA `1.0.0` and Conftest `0.55.0` from upstream releases.
+---
 
 ## Architecture
 
-```
+```text
 policies/
+  controls/               — THE DETECTION LOGIC. One file per control, no deny rules.
+                            Framework packages import these and attach citations.
+                            Each exposes a `control_id` used by the exception registry.
   lib/utils.rego          — Shared constants: primitive_roles, public_members, sensitive_ports
-  controls/               — THE DETECTION LOGIC. One file per control, shared across frameworks.
-  pci_dss/                — One file per PCI DSS requirement (citation layer)
-  soc2/                   — One file per SOC2 criteria cluster (citation layer)
-  nist_800_53/            — One file per NIST control family (citation layer)
+  lib/exceptions.rego     — Exception lookup. Partial function, so an absent
+                            registry means every control denies as normal.
+  exception_report.rego   — `warn` rule printing active exceptions in the gate output
+  pci_dss/                — Citations + framework-local checks (req_1, req_2, req_6, req_7, req_10)
+  soc2/                   — CC6, CC7, logging_monitoring
+  nist_800_53/            — AC, AU, SC, least_privilege
+exceptions/
+  registry.yaml           — Risk acceptances. Loads at `data.exceptions` (NOT
+                            data.exceptions.registry — OPA merges a data file at
+                            the root of the path it is given). Relative path only.
+  validate.rego           — Validates the registry. Deliberately outside policies/
+                            so conftest does not evaluate it against plans.
 tests/
-  controls/               — Detection logic: deny + allow paths, edge cases, regressions
-  pci_dss/ soc2/ nist_800_53/ — Citation assertions + framework-local rules
-  fixtures/               — Pre-generated plan JSON. NOT a test directory; see Commands.
-    compliant.tfplan.json     — Should produce 0 violations
-    noncompliant.tfplan.json  — Should produce violations across all frameworks
-examples/terraform/       — main.tf + versions.tf + COMMITTED plan.json
-  compliant/ noncompliant/
-terraform/                — Bare HCL only, no plan JSON
-  compliant/main.tf       — Reference compliant GCP config (showcase)
-  noncompliant/main.tf    — Deliberately violating config
+  controls/               — Deny path + allow path for every control, plus the
+                            exception mechanism's own tests
+  pci_dss/ soc2/ nist_800_53/ — Citation tests + framework-local rules
+  fixtures/               — Pre-generated plan JSON; used by CI without GCP auth
+terraform/                — NOT what CI evaluates. See examples/ below.
+examples/terraform/
+  compliant/plan.json     — Conftest must ACCEPT this
+  noncompliant/plan.json  — Conftest must REJECT this
 .github/workflows/
-  opa-tests.yml           — 1 job: OPA unit tests on policy/test file changes
-  policy-check.yml        — 5-job gate; triggers on PR and push to main
+  opa-tests.yml           — Unit tests
+  policy-check.yml        — The gate. Five jobs, all `needs: opa-unit-tests`:
+                            exception-registry-valid, conftest-{noncompliant,compliant},
+                            opa-eval-{noncompliant,compliant}
 docs/
-  architecture.md         — Design and data flow
-  controls-mapping.md     — Exact citation of each framework requirement to each policy rule
-  audit-log.md            — Review record: what each audit pass found and fixed
+  controls-mapping.md     — Which framework requirement each rule satisfies
+  GOVERNANCE.md           — Exception process, and what it deliberately does not do
+CONTROL_COVERAGE.md       — What is NOT covered, and why
 ```
 
-### Three fixture sets — not interchangeable
+**Three separate Terraform fixture sets exist** (`tests/fixtures/`, `examples/terraform/`, `terraform/`) and each CI job reads exactly one. `terraform/` is not what the gate evaluates — editing it to make a policy change pass produces a green CI that never exercised the change.
 
-This is the single easiest thing to get wrong here. There are three directories of Terraform, and each CI job reads exactly one of them:
+---
 
-| Directory | Contains | Consumed by |
-| --- | --- | --- |
-| `tests/fixtures/` | plan JSON only | the two `opa eval` jobs in `policy-check.yml` |
-| `examples/terraform/{compliant,noncompliant}/` | `main.tf` + **committed `plan.json`** | the two Conftest jobs in `policy-check.yml` |
-| `terraform/{compliant,noncompliant}/` | bare HCL, no plan JSON | `scripts/check-plan.sh` is documented against this; needs a `terraform plan` first |
+## Baseline Numbers
 
-Editing `terraform/` does **not** change what CI evaluates. The Conftest jobs read `examples/terraform/`, and its `plan.json` is committed — regenerate and commit it, or the policy change will not be exercised.
+**These are the canonical counts. Any deviation means something is broken.**
 
-### Controls vs framework packages — read before editing any policy
+Run this and paste the output before claiming any rule change is correct:
 
-Three standards bodies wrote the same requirement three times with different vocabulary. PCI DSS 7.2.5, SOC 2 CC6.3 and NIST AC-6 are all "least privilege". So the repo splits **what is checked** from **what it is called**:
+```bash
+opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v
+```
 
-- **`policies/controls/`** owns detection logic. One file per control. Each exposes a findings-style set and **deliberately no `deny` / `violation` / `warn` rule** — those are Conftest's reserved rule names, and `conftest test --all-namespaces` would report every finding twice: once from the control, once from each framework citing it.
-- **`policies/{pci_dss,soc2,nist_800_53}/`** own citations and wording. They import a control and wrap its findings in a message carrying their own requirement number. No detection logic.
+| Metric | Expected | Last Verified |
+|--------|----------|---------------|
+| Total tests passing | **163** (45 control + 13 exception + 105 framework) | 2026-07-28 |
+| PCI DSS violations (noncompliant fixture) | **18** | 2026-07-28 |
+| SOC 2 violations (noncompliant fixture) | **12** | 2026-07-28 |
+| NIST 800-53 violations (noncompliant fixture) | **14** | 2026-07-28 |
+| Compliant fixture violations | **0** (all three frameworks) | 2026-07-28 |
+| Conftest, noncompliant example | **19 failures, 56 tests** | 2026-07-28 |
+| Conftest, compliant example | **0 failures, 56 tests** | 2026-07-28 |
 
-Changing **what counts as a violation** belongs in `controls/`. Changing **how a framework phrases it** belongs in the framework package.
+Conftest counts differ from the OPA eval counts because conftest evaluates `examples/terraform/`, not `tests/fixtures/` — two different plan sets. Comparing them to each other is a mistake; compare each to its own row.
 
-This split exists because the previous structure — the same check implemented once per framework — had already produced three false negatives, where one framework silently passed infrastructure the other two rejected. See `docs/audit-log.md` § 2026-07-26. If you find yourself copying a rule body between framework files, that is the bug reproducing itself.
+**To re-verify:** run the commands below and paste the raw terminal output. Do not estimate.
 
-A check with only one consumer stays in its framework package (e.g. `has_pgaudit_enabled` in `req_10`). Promoting it would add indirection and buy nothing.
+```bash
+# Total test count
+opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v | tail -5
 
-### CI jobs (`policy-check.yml`)
+# Violation counts per framework on noncompliant fixture
+opa eval -d policies/ -i tests/fixtures/noncompliant.tfplan.json 'count([m | m := data.pci_dss[_].deny[_]])'
+opa eval -d policies/ -i tests/fixtures/noncompliant.tfplan.json 'count([m | m := data.soc2[_].deny[_]])'
+opa eval -d policies/ -i tests/fixtures/noncompliant.tfplan.json 'count([m | m := data.nist_800_53[_].deny[_]])'
 
-1. `opa-unit-tests` — unit tests + `opa check --strict`
-2. `conftest-noncompliant-must-fail` — Conftest must REJECT `examples/terraform/noncompliant/`
-3. `conftest-compliant-must-pass` — Conftest must ACCEPT `examples/terraform/compliant/`
-4. `opa-eval-noncompliant-must-fail` — must detect violations in `tests/fixtures/noncompliant.tfplan.json`
-5. `opa-eval-compliant-must-pass` — must find zero violations in `tests/fixtures/compliant.tfplan.json`
+# Compliant fixture must be zero
+opa eval -d policies/ -i tests/fixtures/compliant.tfplan.json 'count([m | m := data.pci_dss[_].deny[_]])'
+opa eval -d policies/ -i tests/fixtures/compliant.tfplan.json 'count([m | m := data.soc2[_].deny[_]])'
+opa eval -d policies/ -i tests/fixtures/compliant.tfplan.json 'count([m | m := data.nist_800_53[_].deny[_]])'
+```
 
-Jobs 2 and 3 are inverted assertions: a *passing* build requires the noncompliant example to be *rejected*. A policy that stops firing turns job 2 red, not green.
+---
+
+## Hard Verification Rule
+
+**No claim that a rule "works," "passes," or "is correct" is accepted without pasted terminal output.**
+
+Before any commit, PR, or handoff, you must:
+
+1. Run `opa test policies/ tests/controls/ tests/pci_dss/ tests/soc2/ tests/nist_800_53/ -v`
+2. Run `opa check policies/ --strict`
+3. Paste the **full terminal output** into the session.
+4. Compare against the Baseline Numbers table above.
+5. If counts changed, explain why before proceeding.
+
+**This applies to:** new controls, modified rules, fixture updates, refactors, and dependency bumps. No exceptions.
+
+---
 
 ## OPA Policy Conventions
 
-- All files use `import rego.v1` (OPA v1.0+ syntax; no `import future.keywords` needed) — verified across all 22 policy files
-- Deny rules are partial sets: `deny contains msg if { ... }`
-- Only fires on `"create"` or `"update"` actions — destroy-only changes are ignored
-- `input` shape is Terraform plan JSON from `terraform show -json` (`input.resource_changes[_].change.after`)
-- Helpers that check nested blocks (e.g. `has_pgaudit_enabled`) are defined at the bottom of each policy file
-- `lib/utils.rego` exports shared sets (`primitive_roles`, `public_members`, `sensitive_ports`) and `one_year_seconds`
+- All files use `import rego.v1` (OPA v1.0+ syntax; no `import future.keywords` needed).
+- Deny rules are partial sets: `deny contains msg if { ... }`.
+- Only fires on `"create"` or `"update"` actions — destroy-only changes are ignored.
+- `input` shape is Terraform plan JSON from `terraform show -json` (`input.resource_changes[_].change.after`).
+- Helpers that check nested blocks (e.g., `has_pgaudit_enabled`) are defined at the bottom of each policy file.
+- `lib/utils.rego` exports shared sets (`primitive_roles`, `public_members`, `sensitive_ports`) and `one_year_seconds`.
+
+---
 
 ## Test Conventions
 
-- Test package: `pci_dss.req_1_test` tests `data.pci_dss.req_1`
-- **`tests/controls/` asserts behaviour; framework tests assert citations.** Edge cases, absent blocks, null fields, and destroy-only changes belong in the control test — asserting them again per framework is the duplication this structure removed.
-- Every control test has both deny-path and allow-path cases
-- Use `with input as { "resource_changes": [...] }` to inject minimal fixture data; each test file defines a small `sql(after)` / `bucket(after)` helper rather than inlining full plan JSON per test
-- Filter specific violations: `[v | v := deny[_]; contains(v, "keyword")]`
-- Current count: 150 tests — controls 45, PCI DSS 60, SOC 2 23, NIST 800-53 22
+- Test package: `pci_dss.req_1_test` tests `data.pci_dss.req_1`.
+- Every test file has both deny-path tests (bad config → violation) and allow-path tests (good config → no violation).
+- Use `with input as { "resource_changes": [...] }` to inject minimal fixture data.
+- Filter specific violations: `[v | v := deny[_]; contains(v, "keyword")]`.
+
+---
 
 ## Key Schema Notes (google provider v5.x)
 
-- `google_sql_database_instance.settings` is an array block — access as `settings[_]`
-- `ssl_mode` values: `"ENCRYPTED_ONLY"` (required), `"ALLOW_UNENCRYPTED_AND_ENCRYPTED"`, `"TRUSTED_CLIENT_CERTIFICATE_REQUIRED"`
-- `encryption_key_name` is `null` when CMEK not set (not an empty string)
-- `google_kms_crypto_key.rotation_period` is a string with `s` suffix: `"7776000s"` — use `to_number(trim_suffix(period, "s"))` for numeric comparison
-- `google_storage_bucket.encryption` is an array block — empty `[]` when not set
-- `google_storage_bucket.public_access_prevention`: `"enforced"` or `"inherited"` (default)
+- `google_sql_database_instance.settings` is an array block — access as `settings[_]`.
+- `ssl_mode` values: `"ENCRYPTED_ONLY"` (required), `"ALLOW_UNENCRYPTED_AND_ENCRYPTED"`, `"TRUSTED_CLIENT_CERTIFICATE_REQUIRED"`.
+- `encryption_key_name` is `null` when CMEK not set (not an empty string).
+- `google_kms_crypto_key.rotation_period` is a string with `s` suffix: `"7776000s"` — use `to_number(trim_suffix(period, "s"))` for numeric comparison.
+- `google_storage_bucket.encryption` is an array block — empty `[]` when not set.
+- `google_storage_bucket.public_access_prevention`: `"enforced"` or `"inherited"` (default).
 
-## OPA Gotcha: Null Field Checks
+---
 
-In OPA, `null` is a defined value — `not r.change.after.field` fails when `field = null` because the expression succeeds (produces `null`). Use explicit equality instead:
+## OPA Gotchas: Null, Absent, and Undefined
 
-- `r.change.after.encryption_key_name == null` (not `not r.change.after.encryption_key_name`)
-- `r.change.after.rotation_period == null` (not `not r.change.after.rotation_period`)
-- `r.change.after.rotation_period != null` (for the "exists" check before parsing)
+In Terraform plan JSON, a field can be **absent**, **explicitly `null`**, or **present with a value**. OPA treats these three states differently. Dot-access on an absent key throws an eval error.
 
-## Adding or Changing a Policy
+### The three states
 
-**First decide: does more than one framework cite this check?**
+```rego
+# 1. ABSENT key — dot-access CRASHES
+r.change.after.rotation_period        # ERROR if key missing
 
-If **yes** (the common case — most infrastructure controls appear in all three):
+# 2. EXPLICITLY NULL — dot-access returns null (safe)
+r.change.after.rotation_period == null  # true
 
-1. Write the detection logic in `policies/controls/<name>.rego`. Expose a findings-style set. **Never a `deny`, `violation`, or `warn` rule.**
-2. Add behaviour tests in `tests/controls/<name>_test.rego` — deny path, allow path, and the edge cases: absent block, explicit `null`, destroy-only change.
-3. In each citing framework package, add a `deny` rule that iterates the control's findings and formats a message with that framework's requirement number.
-4. Add one citation test per framework in `tests/<framework>/`, asserting the right requirement is cited. Do not re-test the logic there.
-5. Add a row to the crosswalk table in `docs/controls-mapping.md`.
+# 3. PRESENT with value — dot-access returns value
+r.change.after.rotation_period == "7776000s"  # true
+```
 
-If **no** (single framework, e.g. pgaudit), write it directly in that framework's package with its tests, and add it to the framework-local table in `docs/controls-mapping.md`.
+### Safe patterns for optional fields
 
-Then, either way:
+```rego
+# Pattern A: object.get() — handles absent AND null
+# Use this when the key may not exist in the plan JSON.
+object.get(r.change.after, "encryption_key_name", null) == null
 
-- If the rule should be caught by Conftest, update `examples/terraform/noncompliant/main.tf` **and regenerate its committed `plan.json`**.
-- If it fixes a false negative, add a resource to `tests/fixtures/noncompliant.tfplan.json` so CI would catch a regression — and record the violation-count delta.
-- Run the full test command above before committing.
+# Pattern B: explicit null check — use ONLY when the key is guaranteed to exist
+# (e.g., the provider always emits it, even as null).
+r.change.after.encryption_key_name == null
 
-Never weaken or delete a policy to make a build pass without updating `docs/controls-mapping.md` and the corresponding tests.
+# Pattern C: "exists and is not null" — for mandatory-value checks
+object.get(r.change.after, "rotation_period", null) != null
+```
+
+### Decision tree
+
+```
+Is the field always present in the provider's JSON output?
+├── YES → Use direct dot-access: r.change.after.field == null
+└── NO  → Use object.get(): object.get(r.change.after, "field", null) == null
+```
+
+**When in doubt, use `object.get()`.** It is slower to read but never crashes.
+
+---
+
+## Debugging a Failing Rule
+
+### Step 1: Identify the exact test failure
+
+```bash
+opa test policies/ tests/controls/ tests/pci_dss/ -v --run TestReq1DenyPublicSql
+```
+
+### Step 2: Trace the rule evaluation
+
+```bash
+opa test policies/ tests/controls/ tests/pci_dss/ -v --explain full --run TestReq1DenyPublicSql
+```
+
+### Step 3: Inspect the raw input shape
+
+```bash
+# Extract the resource block from a fixture
+jq '.resource_changes[] | select(.type == "google_sql_database_instance")' \
+  tests/fixtures/noncompliant.tfplan.json
+```
+
+### Step 4: Run the rule against the fixture in isolation
+
+```bash
+opa eval -d policies/pci_dss/req_1.rego -i tests/fixtures/noncompliant.tfplan.json \
+  'data.pci_dss.req_1.deny'
+```
+
+### Common failure modes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `opa test` crashes with "eval_type_error" | Dot-access on absent key | Switch to `object.get()` |
+| Rule returns empty set when it should fire | Action filter excludes `"no-op"` or `"read"` | Verify action is `"create"` or `"update"` |
+| Conftest passes but OPA unit test fails | Conftest loads data differently (no `input` wrapper) | Check `input` shape in test vs. raw plan |
+| Test expects violation, gets none | Fixture uses wrong provider version schema | Verify field names match v5.x schema notes above |
+| Test expects no violation, gets one | Allow-path test missing a required field | Add the field to the mock `input` block |
+
+---
+
+## Adding a New Control
+
+Use this checklist when adding a new PCI DSS requirement, SOC 2 criteria, or NIST control.
+
+1. **Map the control** in `docs/controls-mapping.md` — cite the exact framework paragraph.
+2. **Create the policy file** at `policies/<framework>/<control_id>.rego`.
+   - Use `import rego.v1`.
+   - Name the package `data.<framework>.<control_id>`.
+   - Define `deny contains msg if { ... }`.
+   - Add helper functions at the bottom of the file.
+3. **Create the test file** at `tests/<framework>/<control_id>_test.rego`.
+   - Package name: `<framework>.<control_id>_test`.
+   - Minimum two tests: one deny-path, one allow-path.
+   - Use `with input as { ... }` for fixtures.
+4. **Update fixtures** (if the new control needs new resource types).
+   - Add to `tests/fixtures/noncompliant.tfplan.json` for deny tests.
+   - Add to `tests/fixtures/compliant.tfplan.json` for allow tests.
+5. **Run the full test suite and paste output** (see Hard Verification Rule).
+   - Verify total test count increased by exactly 2 (one deny, one allow).
+   - Verify noncompliant fixture violation count increased by 1.
+   - Verify compliant fixture still shows 0 violations.
+6. **Update the CI orchestrator** (`policy-check.yml`) if the new control introduces a new job or dependency.
+7. **Commit** with message format: `feat(policies): add <framework> <control_id> — <short description>`.
+
+---
+
+## Decision Trees for Common Tasks
+
+### "A rule is firing on a resource it shouldn't"
+
+```
+1. Check the action filter — is it limited to "create" / "update"?
+2. Check the resource type filter — is it too broad?
+3. Check the null/absent handling — is an absent key being treated as a violation?
+4. Inspect the fixture — does the mock input match real plan JSON shape?
+```
+
+### "I need to update a fixture after changing Terraform"
+
+```
+1. cd terraform/compliant or terraform/noncompliant
+2. terraform plan -out=tfplan.binary
+3. terraform show -json tfplan.binary > ../../tests/fixtures/<name>.tfplan.json
+4. Run OPA tests to verify counts
+5. If violation counts changed, update test assertions
+```
+
+### "CI passes locally but fails in GitHub Actions"
+
+```
+1. Check OPA version match: `opa version` locally vs. CI
+2. Check Conftest version match
+3. Verify fixture files are committed (not .gitignored)
+4. Re-run `act -j <job_name>` to reproduce exactly
+```

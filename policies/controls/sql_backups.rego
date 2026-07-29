@@ -2,6 +2,7 @@ package controls.sql_backups
 
 import rego.v1
 
+import data.lib.exceptions
 import data.lib.utils
 
 # CONTROL: Automated backups on Cloud SQL.
@@ -27,11 +28,16 @@ import data.lib.utils
 # canonical.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Exception key. Must match `control_id` in exceptions/registry.yaml exactly;
+# a typo grants nothing, which is the safe direction to fail.
+control_id := "sql-backups"
+
 not_enabled contains finding if {
 	r := input.resource_changes[_]
 	r.type == "google_sql_database_instance"
 	utils.is_active_change(r.change)
 	not enabled(r)
+	not exceptions.granted(r.address, control_id)
 	finding := {"address": r.address}
 }
 

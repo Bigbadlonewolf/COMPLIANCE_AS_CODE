@@ -1,0 +1,64 @@
+# Risk-acceptance exception registry
+#
+# Every entry here suppresses one control's finding for one resource address,
+# until its expiration date and no longer. Process: docs/GOVERNANCE.md.
+#
+# The `exceptions:` key below lands at `data.exceptions` — OPA merges a data
+# file at the root of whatever path it is given, so there is no `registry`
+# segment in the path despite the filename. Load it explicitly:
+#   conftest test plan.json --policy policies --data exceptions/registry.yaml --all-namespaces
+#   opa eval -d policies/ -d exceptions/registry.yaml -i plan.json '...'
+#
+# If this file is not loaded, nothing is suppressed and every control enforces
+# normally. Losing the registry cannot weaken the gate.
+#
+# ── Field reference ──────────────────────────────────────────────────────────
+#
+#   exception_id      Stable identifier. Referenced in commit messages and
+#                     review notes. Never reused after an entry is removed.
+#   resource_address  Terraform address, exactly as it appears in plan JSON —
+#                     "google_storage_bucket.public_site", not the bucket name.
+#   control_id        Must match the `control_id` constant in the matching
+#                     policies/controls/*.rego. See the table below.
+#   justification     Why the risk is accepted. Written for someone who was not
+#                     in the conversation. "Temporary" is not a justification.
+#   approved_by       Who accepted the risk.
+#   approved_date     YYYY-MM-DD.
+#   expiration_date   YYYY-MM-DD. Required. The exception is dead at 00:00 UTC
+#                     ON this date, not at the end of it. There is no "never"
+#                     value and adding one would defeat the mechanism.
+#
+# ── Valid control_id values ──────────────────────────────────────────────────
+#
+#   cmek-at-rest        CMEK on Cloud SQL instances and storage buckets
+#   key-rotation        KMS keys rotate, and rotate at least annually
+#   object-versioning   Object versioning enabled on storage buckets
+#   privileged-access   Primitive roles and public IAM members
+#   sql-backups         Automated backups on Cloud SQL
+#   tls-in-transit      ssl_mode = ENCRYPTED_ONLY on Cloud SQL
+#
+# Framework-local checks (AWS/Azure encryption, secret-shaped env vars, network
+# segmentation) are NOT exception-able. They live outside policies/controls/ and
+# have no control_id. This is a known limitation, stated in GOVERNANCE.md rather
+# than papered over.
+
+exceptions: []
+# Example of a well-formed entry. Uncomment, replace every field, and open a PR:
+#
+#   - exception_id: EXC-2026-001
+#     resource_address: google_storage_bucket.public_docs_site
+#     control_id: object-versioning
+#     justification: >-
+#       Static documentation site rebuilt from source on every deploy. Object
+#       versioning would retain every superseded asset indefinitely at storage
+#       cost, and the bucket holds no data that is not reproducible from the
+#       git repository that generates it. Tamper-evidence is provided by that
+#       repository's history rather than by bucket versioning.
+#     approved_by: lanre.oluokun
+#     approved_date: "2026-07-28"
+#     expiration_date: "2027-01-28"
+#
+# Quote the dates. Unquoted, YAML deserializes them as date objects rather than
+# strings, and the validator rejects them — correctly, since the policy compares
+# strings. The error message says "is not a YYYY-MM-DD date", which is confusing
+# when the value plainly looks like one; the fix is always the quotes.

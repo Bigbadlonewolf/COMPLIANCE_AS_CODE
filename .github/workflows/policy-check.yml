@@ -8,6 +8,7 @@ on:
       - "policies/**"
       - "tests/controls/**"
       - "tests/fixtures/**"
+      - "exceptions/**"
   push:
     branches: [main]
 
@@ -39,6 +40,45 @@ jobs:
       - name: Check policy syntax
         run: opa check policies/ --strict
 
+  # ── Exception registry ──────────────────────────────────────────────────────
+  # The registry is the one file whose job is to let a check not fire, so it
+  # gets a check of its own. Gates on the unit tests like everything else.
+  exception-registry-valid:
+    name: Exception registry is well-formed and unexpired
+    runs-on: ubuntu-latest
+    needs: opa-unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -fsSL -o /usr/local/bin/opa \
+            https://github.com/open-policy-agent/opa/releases/download/v${{ env.OPA_VERSION }}/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+
+      # Relative path is required. Given an absolute one, OPA derives the data
+      # path from the path itself and data.exceptions ends up undefined.
+      - name: Validate registry
+        run: |
+          set -euo pipefail
+          ERRORS=$(opa eval -d exceptions/ --format raw 'data.exceptions_validate.errors')
+          if [ "$ERRORS" != "[]" ]; then
+            echo "::error::Exception registry is invalid:"
+            opa eval -d exceptions/ --format pretty 'data.exceptions_validate.errors'
+            exit 1
+          fi
+          echo "Exception registry is valid."
+
+      # An exception that suppresses nothing is harmless; an exception the gate
+      # cannot see is not. If the registry has entries, they must be reachable.
+      - name: Report active exceptions
+        run: |
+          COUNT=$(opa eval -d exceptions/ --format raw 'count(data.exceptions)')
+          echo "### Exception registry: ${COUNT} entries" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" != "0" ]; then
+            opa eval -d exceptions/ --format pretty 'data.exceptions' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # ── Conftest: examples/terraform/ ───────────────────────────────────────────
   conftest-noncompliant-must-fail:
     name: Conftest must REJECT the noncompliant example
@@ -57,7 +97,7 @@ jobs:
         working-directory: examples/terraform/noncompliant
         run: |
           set +e
-          conftest test plan.json --policy ../../../policies --all-namespaces
+          conftest test plan.json --policy ../../../policies --data ../../../exceptions/registry.yaml --all-namespaces
           result=$?
           set -e
           if [ $result -eq 0 ]; then
@@ -81,7 +121,8 @@ jobs:
 
       - name: Conftest should accept this plan
         working-directory: examples/terraform/compliant
-        run: conftest test plan.json --policy ../../../policies --all-namespaces
+        run: |
+          conftest test plan.json --policy ../../../policies --data ../../../exceptions/registry.yaml --all-namespaces
 
   # ── OPA eval: tests/fixtures/ ────────────────────────────────────────────────
   opa-eval-noncompliant-must-fail:

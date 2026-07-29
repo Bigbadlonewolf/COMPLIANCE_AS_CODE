@@ -2,6 +2,7 @@ package controls.privileged_access
 
 import rego.v1
 
+import data.lib.exceptions
 import data.lib.utils
 
 # CONTROL: Privileged and unauthenticated project access.
@@ -20,11 +21,16 @@ import data.lib.utils
 
 # ── Primitive project-level roles (owner / editor / viewer) ──────────────────
 
+# Exception key. Must match `control_id` in exceptions/registry.yaml exactly;
+# a typo grants nothing, which is the safe direction to fail.
+control_id := "privileged-access"
+
 primitive_role contains finding if {
 	r := input.resource_changes[_]
 	r.type in {"google_project_iam_member", "google_project_iam_binding"}
 	utils.is_active_change(r.change)
 	r.change.after.role in utils.primitive_roles
+	not exceptions.granted(r.address, control_id)
 	finding := {
 		"address": r.address,
 		"role": r.change.after.role,
@@ -41,6 +47,7 @@ public_member contains finding if {
 	r.type == "google_project_iam_member"
 	utils.is_active_change(r.change)
 	r.change.after.member in utils.public_members
+	not exceptions.granted(r.address, control_id)
 	finding := {
 		"address": r.address,
 		"member": r.change.after.member,
@@ -54,6 +61,7 @@ public_member contains finding if {
 	utils.is_active_change(r.change)
 	member := r.change.after.members[_]
 	member in utils.public_members
+	not exceptions.granted(r.address, control_id)
 	finding := {
 		"address": r.address,
 		"member": member,

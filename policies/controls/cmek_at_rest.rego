@@ -2,6 +2,7 @@ package controls.cmek_at_rest
 
 import rego.v1
 
+import data.lib.exceptions
 import data.lib.utils
 
 # CONTROL: Customer-managed encryption keys (CMEK) on data at rest.
@@ -30,11 +31,16 @@ import data.lib.utils
 # absent rather than null.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Exception key. Must match `control_id` in exceptions/registry.yaml exactly;
+# a typo grants nothing, which is the safe direction to fail.
+control_id := "cmek-at-rest"
+
 sql_missing contains finding if {
 	r := input.resource_changes[_]
 	r.type == "google_sql_database_instance"
 	utils.is_active_change(r.change)
 	not sql_has_cmek(r)
+	not exceptions.granted(r.address, control_id)
 	finding := {"address": r.address}
 }
 
@@ -43,6 +49,7 @@ bucket_missing contains finding if {
 	r.type == "google_storage_bucket"
 	utils.is_active_change(r.change)
 	not bucket_has_cmek(r)
+	not exceptions.granted(r.address, control_id)
 	finding := {"address": r.address}
 }
 

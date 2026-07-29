@@ -2,6 +2,7 @@ package controls.key_rotation
 
 import rego.v1
 
+import data.lib.exceptions
 import data.lib.utils
 
 # CONTROL: Automatic rotation of KMS encryption keys.
@@ -26,10 +27,15 @@ import data.lib.utils
 # is ABSENT from the plan is treated the same as one explicitly set to null. This
 # matches how cmek_at_rest handles encryption_key_name — the control layer should
 # not have two different answers to "what does a missing field mean".
+# Exception key. Must match `control_id` in exceptions/registry.yaml exactly;
+# a typo grants nothing, which is the safe direction to fail.
+control_id := "key-rotation"
+
 missing contains finding if {
 	r := input.resource_changes[_]
 	rotatable(r)
 	not has_rotation(r)
+	not exceptions.granted(r.address, control_id)
 	finding := {"address": r.address}
 }
 
@@ -43,6 +49,7 @@ excessive contains finding if {
 	r.change.after.rotation_period != null
 	seconds := to_number(trim_suffix(r.change.after.rotation_period, "s"))
 	seconds > utils.one_year_seconds
+	not exceptions.granted(r.address, control_id)
 	finding := {
 		"address": r.address,
 		"seconds": seconds,
