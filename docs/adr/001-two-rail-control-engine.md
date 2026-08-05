@@ -180,12 +180,17 @@ For the projection-table gap this ADR states a rule:
 
 **That rule is not currently enforced by anything, and this ADR should not pretend otherwise.** An earlier revision called it a "gate" and claimed it "cannot be passed without someone deciding to remove it". That was false: it is a sentence in a markdown file, exactly as bypassable as the deadline it replaced. Restating an intention in firmer grammar does not make it a control — which is, uncomfortably, the entire thesis of this repository.
 
-Making it real requires a mechanism, and the mechanism is named so it can be checked off rather than assumed:
+Making it real requires a mechanism. An earlier revision named the wrong one: a job checking that a golden-document check *exists in the workflow set*, promoted to a required check. That verifies a file is present, not that anything was evaluated — a pull request could add the golden job, path-filter it so it never fires on the files being changed, and satisfy every condition while testing nothing.
 
-1. A CI job that fails when any file under `policies/controls/` changes while the golden-normalised-document check is absent from the workflow set.
-2. That job added to branch protection on `main` as a required status check, so it cannot be merged past without an explicit administrative override that is visible in the audit trail.
+Three properties are needed, and all three are load-bearing:
 
-Until both exist, the rule above is **a stated policy relying on the author remembering it**, and the risk it covers is live. Implementing it is stage 0 of the migration plan — before any twin merges, not alongside them.
+1. **The golden-normalised-document job is itself the required status check** on `main`. Not a job that asserts its existence. The check that must go green is the one that does the comparing.
+2. **It must run, and fail, rather than skip.** A job that does not run cannot fail. Path filters that prevent a workflow triggering, and `if:` conditions that skip a job, are two distinct behaviours and at least one of them can leave a required check satisfied without evaluating anything — confirm which against GitHub's current semantics rather than assuming, because the failure is silent in exactly the way this ADR is about. The safe construction is a single unconditionally-triggered workflow that decides internally and exits non-zero, so "not applicable" is a decision the job makes and records rather than an absence.
+3. **It must have exercised the property that changed.** A golden job that runs green while covering none of the properties the modified control reads has proven nothing and looks identical to one that has. So the job asserts that every property named in `projection.yaml` appears in at least one golden document, and fails when a control reads a property with no golden coverage.
+
+Property 3 is what separates this from theatre. Properties 1 and 2 make the job unavoidable; only 3 makes passing it mean something.
+
+Until all three exist, the rule above is **a stated policy relying on the author remembering it**, and the risk it covers is live. Implementing it is stage 0 of the migration plan — before any twin merges, not alongside them.
 
 The one genuinely time-bound item is review of this ADR itself: revisit on **2026-11-04**, three months from acceptance, whether or not any trigger has fired. If none has, record that too — an ADR nobody revisits is indistinguishable from one nobody follows.
 
