@@ -10,7 +10,7 @@
 
 **Each compliance rule is written once and checked twice: before a change is applied, and against what is actually running.** Today the same rules are written twice across two repositories, they have already begun to disagree without anyone noticing, and neither can see a change made outside Terraform — a console edit or a manual command is invisible to both. This decision makes one rule the single definition, adds the ability to detect configuration that drifts after deployment, and narrows scope to Google Cloud only, deleting roughly 34 tested cases of Amazon and Microsoft cloud coverage in exchange.
 
-The cost is stated plainly in Consequences and is not small: one component of the design cannot be covered by the existing test suite, and that gap is accepted with a deadline attached rather than solved.
+The cost is stated plainly in Consequences and is not small: one component of the design cannot be covered by the existing test suite. That gap is held closed by a gate — no control merges until a test for it exists — rather than by a promise to get to it.
 
 ---
 
@@ -142,7 +142,7 @@ The detective rail is Cloud Asset Inventory, which is GCP-only. An AWS or Azure 
 
 ### Negative
 
-- **The projection table escapes the test suite, and this is measured rather than suspected.** Repointing one line of the projection table at a field that is always populated turned an unencrypted bucket into a compliant one, and `opa test` still reported PASS. A wrong field path is a false negative that no policy test can see. **The mitigation is a golden-normalised-document CI job that neither repository currently has, and until it exists this gap is accepted knowingly.** It is the single largest cost of this decision.
+- **The projection table escapes the test suite, and this is measured rather than suspected.** Repointing one line of the projection table at a field that is always populated turned an unencrypted bucket into a compliant one, and `opa test` still reported PASS. A wrong field path is a false negative that no policy test can see. **The mitigation is a golden-normalised-document CI job that neither repository currently has.** It is the single largest cost of this decision, and it is held by a gate rather than an intention: no twin control merges until that job exists and runs on every pull request. See *What would invalidate this decision*.
 - **The detective rail is new code, not migrated code.** No Rego in either repository has ever read asset data. Describing this as consolidating two existing rails would overstate what is proven. It is one proven rail plus one being written, against fixtures nothing has evaluated.
 - **Roughly 34 tested cases are deleted with AWS and Azure.** The suite drops from 163 to approximately 129. A shrinking green suite is precisely the signal that reads as normal, so the deletion is its own reviewable step and its count is stated before it happens. `CONTROL_COVERAGE.md` currently counts AWS and Azure clauses toward PCI Requirement 3 and will be wrong until rewritten alongside it.
 - **The merged engine denies more than `regcheck` does today.** `sensitive_ports` resolves to the superset of twelve, restoring etcd, the Kubernetes API server, and Elasticsearch. Any `regcheck`-derived environment currently passing may begin failing. The narrower list was rejected because adopting it would remove five ports from what this repository denies today, and weakening a control to ease a merge is not available. The deploy-friction concern it was protecting against routes to the existing expiring-exception mechanism instead.
@@ -165,14 +165,22 @@ Observable signals, not "if requirements change". Any one of these reopens the A
 
 | Trigger | Signal | What it would change |
 | --- | --- | --- |
-| The projection table proves untestable in practice | The golden-normalised-document CI job is not merged within two twin migrations of stage 3 starting, **or** a projection error reaches a release undetected | The largest accepted cost turns out to be unmitigable. Normalisation moves back toward Rego, or controls go back to naming field paths. |
+| The projection table proves untestable in practice | A projection error reaches `main` undetected by CI — that is, a control's verdict changes with no test failing | The largest accepted cost turns out to be unmitigable. Normalisation moves back toward Rego, or controls go back to naming field paths. |
 | Differential evaluation misses a real defect | Any twin merges green under differential evaluation and a false negative in that control is found afterwards | The proof method is insufficient. Adversarial per-twin fixtures — considered and not adopted here — become mandatory. |
 | The first merge disagrees unexpectedly | `open_firewall` ≡ `req_1_network_controls` surfaces any disagreement beyond the five known `sensitive_ports` values (2379, 2380, 6443, 9200, 9300) | The method has found something unmodelled. Merging stops until it is explained. |
 | A second cloud becomes in scope | A workload targets AWS or Azure and needs the same controls | GCP-only is the wrong boundary. Either a second inventory source and normaliser, or controls that advertise two rails and have one. |
 | Cloud Asset Inventory stops being sufficient | An asset type this control set needs is absent from CAI, or the required content type is unavailable | The detective rail's single source assumption fails and a second reader is needed. |
 | The exception mechanism cannot absorb the port widening | More than a handful of standing exceptions accumulate against the five restored ports | The superset was the wrong call and parameterised profiles — rejected here as a second untested data file — need revisiting. |
 
-Two of these are dated rather than conditional. The golden-document job has a deadline attached because "accepted knowingly" decays into "forgotten" without one.
+Every trigger above is conditional. None is dated, and none should be read as one.
+
+The projection-table gap is instead handled by a **gate**, which is stronger than a deadline and needs no calendar:
+
+> **No twin control may merge until the golden-normalised-document CI job exists and runs on every pull request.**
+
+A deadline can pass unnoticed; a gate cannot be passed without someone deciding to remove it. This is the mechanism that stops "accepted knowingly" decaying into "forgotten", and it is written into the migration plan as a stage-0 prerequisite rather than left to memory.
+
+The one genuinely time-bound item is review of this ADR itself: revisit on **2026-11-04**, three months from acceptance, whether or not any trigger has fired. If none has, that is worth recording too — an ADR nobody revisits is indistinguishable from one nobody follows.
 
 ## Alternatives Considered
 
@@ -188,13 +196,18 @@ Republishing findings back to SCC as a custom source remains the only SCC integr
 
 **Adopting FFIEC citations as a straight port.** Rejected. `regcheck` bakes its citations into the deny message strings themselves, which is detection and citation in one file — the arrangement the v1→v2 extraction removed. FFIEC becomes a fourth citation package only after those citations are lifted out into their own layer. Porting as-is would make "frameworks cite, never detect" false on the day it shipped.
 
-**The FFIEC Appendix J citations are wrong and are corrected during extraction, not carried.** Checked 2026-08-04, on two counts:
+**The FFIEC Appendix J citations do not hold, and the extraction step corrects them rather than porting them.** `regcheck` cites "FFIEC IT Examination Handbook, Business Continuity Management booklet, Appendix J" for bucket public-access prevention and for network segmentation.
 
-- **Subject matter.** Appendix J is *Strengthening the Resilience of Outsourced Technology Services* — third-party and technology-service-provider risk management joined to business continuity. `regcheck` cites it for bucket public-access prevention and for network segmentation. It supports neither.
-- **Booklet.** Appendix J was an appendix to the Business Continuity **Planning** booklet (2015). The 2019 revised Business Continuity **Management** booklet replaced that booklet and rescinded the originating OCC bulletin. `regcheck` cites Appendix J *of the Business Continuity Management booklet* — attaching it to the booklet that superseded the one it belonged to.
+Sourcing is separated below by strength, because a claim about a regulation made from a secondary summary would be the same defect this section is describing.
 
-The FFIEC extraction step is therefore a **correction**, not a port. Each FFIEC citation is re-derived against the current handbook, and a citation that cannot be justified is removed rather than reworded.
+**Established from a primary source.** OCC Bulletin 2019-57 states verbatim that the revised booklet "replaces the 'Business Continuity Planning' booklet issued in February 2015" and "rescinds OCC Bulletin 2015-9, 'FFIEC Information Technology Examination Handbook: Strengthening the Resilience of Outsourced Technology Services, New Appendix for Business Continuity Planning Booklet.'"
 
-This is recorded in the ADR rather than quietly fixed because it is the failure mode this whole decision exists to prevent, occurring in the repository being merged in. A control that fires correctly while citing a regulation that does not say what the citation implies is not a compliance control — it is a lint rule with a footnote. It also argues for the topology: citations that live inside `sprintf` strings are citations nobody reviews.
+Two things follow directly. Appendix J is titled *Strengthening the Resilience of Outsourced Technology Services* and concerns third-party and technology-service-provider resilience — a subject that does not reach bucket access controls or network segmentation. And it was an appendix to the Business Continuity **Planning** booklet, not the Business Continuity **Management** booklet that `regcheck` names.
 
-Verification note: the subject and title are confirmed from the FFIEC and OCC announcements; the full appendix text was not read. The supersession is high-confidence, not certain, and the extraction step re-checks it.
+**Reported by industry summaries, not yet confirmed primary.** The 2015 Planning booklet carried ten appendices, A through J; the 2019 Management booklet carries four, with the content of Appendices C through J folded into the body of the booklet rather than retained as appendices. If that holds, the current Management booklet has no Appendix J at all, and the citation names a document section that does not exist.
+
+**Not verified.** The full text of Appendix J. Both `ffiec.gov` and `ithandbook.ffiec.gov` returned HTTP 403 to automated retrieval on 2026-08-04, so the appendix body and the current booklet's appendix list were not read directly. Confirming them requires opening the handbook by hand.
+
+The subject-matter mismatch rests on the primary source and is enough on its own: an appendix about outsourcing resilience does not support a control about public bucket access. The missing-appendix claim is the stronger finding and the weaker citation, so the migration step re-checks it against the handbook before acting.
+
+This is recorded here rather than quietly fixed because it is the failure mode this decision exists to prevent, found in the repository being merged in. A control that fires correctly while citing a regulation that does not say what the citation implies is not a compliance control — it is a lint rule with a footnote. It also argues for the topology: citations living inside `sprintf` strings are citations nobody reviews.
